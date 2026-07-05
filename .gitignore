@@ -1,0 +1,23 @@
+# Maven build outputs
+target/
+*.class
+
+# Log files
+*.log
+
+# IDE configuration files
+.idea/
+*.iml
+*.iws
+.classpath
+.project
+.settings/
+.factorypath
+.recommenders/
+dependency-reduced-pom.xml
+
+# OS-generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
