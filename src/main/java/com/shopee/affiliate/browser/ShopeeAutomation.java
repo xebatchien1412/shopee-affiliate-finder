@@ -419,7 +419,7 @@ public class ShopeeAutomation implements AutoCloseable {
 
                 // Tìm nút trang tiếp theo bằng cách duyệt qua toàn bộ ứng viên trên DOM để tìm nút hiển thị và hoạt động
                 Locator nextBtn = null;
-                Locator nextBtnCandidates = page.locator("li.ant-pagination-next button, li.ant-pagination-next a, button.ant-pagination-next");
+                Locator nextBtnCandidates = page.locator("li.ant-pagination-next, li.ant-pagination-next button, li.ant-pagination-next a, button.ant-pagination-next");
                 int candidateCount = nextBtnCandidates.count();
                 for (int c = 0; c < candidateCount; c++) {
                     Locator cand = nextBtnCandidates.nth(c);
@@ -664,7 +664,7 @@ public class ShopeeAutomation implements AutoCloseable {
 
                 // Tìm nút trang tiếp theo bằng cách duyệt qua toàn bộ ứng viên trên DOM để tìm nút hiển thị và hoạt động
                 Locator nextBtn = null;
-                Locator nextBtnCandidates = page.locator("li.ant-pagination-next button, li.ant-pagination-next a, button.ant-pagination-next");
+                Locator nextBtnCandidates = page.locator("li.ant-pagination-next, li.ant-pagination-next button, li.ant-pagination-next a, button.ant-pagination-next");
                 int candidateCount = nextBtnCandidates.count();
                 for (int c = 0; c < candidateCount; c++) {
                     Locator cand = nextBtnCandidates.nth(c);
