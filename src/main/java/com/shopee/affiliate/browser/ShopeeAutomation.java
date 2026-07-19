@@ -662,6 +662,23 @@ public class ShopeeAutomation implements AutoCloseable {
                     break;
                 }
 
+                // [Debug] In chi tiết cấu trúc DOM của nút phân trang để chẩn đoán chính xác
+                try {
+                    Locator debugNext = page.locator("li.ant-pagination-next, button.ant-pagination-next");
+                    int debugCount = debugNext.count();
+                    System.out.println("  [Chẩn đoán Phân Trang] Tìm thấy " + debugCount + " phần tử Next Page trên DOM.");
+                    for (int d = 0; d < debugCount; d++) {
+                        Locator dl = debugNext.nth(d);
+                        String tag = (String) dl.evaluate("el => el.tagName");
+                        boolean visible = dl.isVisible();
+                        String cls = dl.getAttribute("class");
+                        String outerHtml = (String) dl.evaluate("el => el.outerHTML");
+                        System.out.println("    - Nút " + (d + 1) + ": Tag=" + tag + ", Visible=" + visible + ", Class=" + cls + ", HTML=" + outerHtml);
+                    }
+                } catch (Exception ex) {
+                    System.out.println("  [Chẩn đoán Phân Trang] Lỗi khi quét DOM phân trang: " + ex.getMessage());
+                }
+
                 // Tìm nút trang tiếp theo bằng cách duyệt qua toàn bộ ứng viên trên DOM để tìm nút hiển thị và hoạt động
                 Locator nextBtn = null;
                 Locator nextBtnCandidates = page.locator("li.ant-pagination-next, li.ant-pagination-next button, li.ant-pagination-next a, button.ant-pagination-next");
