@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Giao diện đồ họa (GUI) cho ứng dụng Shopee Affiliate Finder sử dụng FlatLaf Dark Mode.
@@ -158,7 +159,22 @@ public class AppFrame extends JFrame {
         if (option == JFileChooser.APPROVE_OPTION) {
             File file = fileChooser.getSelectedFile();
             txtInputDir.setText(file.getAbsolutePath());
+            saveCurrentConfig(); // Lưu trạng thái thư mục ngay khi chọn xong
         }
+    }
+
+    /**
+     * Lưu cấu hình hiện tại vào tệp config.properties cục bộ.
+     */
+    private void saveCurrentConfig() {
+        String inputDir = txtInputDir.getText().trim();
+        String apiKey = txtApiKey.getText().trim();
+        String model = AppConfig.getGeminiModel();
+        int maxLinks = (Integer) spinMaxLinks.getValue();
+        int extractFrames = (Integer) spinFrames.getValue();
+        boolean isCdp = AppConfig.isCdp();
+        
+        AppConfig.saveProperties(inputDir, apiKey, model, maxLinks, extractFrames, isCdp);
     }
 
     /**
@@ -196,6 +212,9 @@ public class AppFrame extends JFrame {
         System.setProperty("gui.gemini.key", apiKey);
         System.setProperty("gui.max.links", spinMaxLinks.getValue().toString());
         System.setProperty("gui.extract.frames", spinFrames.getValue().toString());
+
+        // Lưu cấu hình hiện tại vào file để lần sau mở lên giữ nguyên trạng thái
+        saveCurrentConfig();
 
         txtLog.setText(""); // Xóa sạch log cũ
         progressBar.setValue(0);
@@ -260,19 +279,9 @@ public class AppFrame extends JFrame {
         int totalFolders = productFolders.length;
         System.out.println("Bắt đầu xử lý " + totalFolders + " thư mục sản phẩm...");
 
-        // Khởi tạo Automation và VLM Comparator
+        // Khởi tạo Automation và VLM Comparator với API Key lấy từ GUI
         ShopeeAutomation automation = new ShopeeAutomation();
-        GeminiVlmComparator vlmComparator = new GeminiVlmComparator() {
-            // Override lại để lấy api key trực tiếp từ GUI thay vì file config
-            @Override
-            public MatchResult compareImages(List<File> videoFrames, String shopeeImageUrl, String queryName, String shopeeTitle) {
-                // Tạm thời ghi đè api key từ gui vào hệ thống trước khi gọi để chắc chắn
-                if (!apiKey.isEmpty() && !apiKey.equals("YOUR_GEMINI_API_KEY")) {
-                    System.setProperty("gemini.api.key", apiKey);
-                }
-                return super.compareImages(videoFrames, shopeeImageUrl, queryName, shopeeTitle);
-            }
-        };
+        GeminiVlmComparator vlmComparator = new GeminiVlmComparator(apiKey);
 
         File tempDir = new File("temp_frames");
         if (!tempDir.exists()) {
@@ -348,36 +357,47 @@ public class AppFrame extends JFrame {
                     continue;
                 }
 
-                List<ShopeeProduct> matchedProducts = new ArrayList<>();
-
-                // 3. Đối sánh sản phẩm
+                List<ShopeeProduct> candidatesToCompare = new ArrayList<>();
                 for (ShopeeProduct candidate : searchResults) {
                     if (worker.isCancelled()) break;
-                    if (metadata.getAffiliateLinks().size() + matchedProducts.size() >= maxLinks) {
-                        break;
+                    System.out.println("  * Tiền lọc văn bản: " + candidate.getTitle());
+                    if (TextMatcher.isTextMatch(metadata.getProductName(), candidate.getTitle())) {
+                        candidatesToCompare.add(candidate);
+                        System.out.println("    => [OK] Đạt tiêu chuẩn lọc từ khóa.");
+                    } else {
+                        System.out.println("    => [LOẠI] Không khớp từ khóa.");
                     }
+                }
 
-                    System.out.println("  * Kiểm tra sản phẩm Shopee: " + candidate.getTitle());
+                List<ShopeeProduct> matchedProducts = new ArrayList<>();
 
-                    // Tiền lọc text
-                    if (!TextMatcher.isTextMatch(metadata.getProductName(), candidate.getTitle())) {
-                        System.out.println("    -> [LOẠI] Không khớp từ khóa.");
-                        continue;
-                    }
-
-                    // So sánh ảnh bằng AI
-                    MatchResult matchResult = vlmComparator.compareImages(
-                            extractedFrames, candidate.getImageUrl(), metadata.getProductName(), candidate.getTitle()
+                if (!candidatesToCompare.isEmpty() && !worker.isCancelled()) {
+                    // Chạy đối sánh ảnh theo lô (Batch Mode)
+                    Map<Integer, GeminiVlmComparator.MatchResult> batchResults = vlmComparator.compareImagesBatch(
+                            extractedFrames, candidatesToCompare, metadata.getProductName()
                     );
 
-                    System.out.println("    -> [KẾT QUẢ AI] Khớp: " + matchResult.isMatch() + 
-                            " (Độ tin cậy: " + String.format("%.2f", matchResult.getConfidence()) + ")");
+                    for (int i = 0; i < candidatesToCompare.size(); i++) {
+                        if (worker.isCancelled()) break;
+                        // Kiểm tra nếu tổng số link hiện tại + số link khớp chuẩn bị lấy đã vượt quá giới hạn
+                        if (metadata.getAffiliateLinks().size() + matchedProducts.size() >= maxLinks) {
+                            break;
+                        }
 
-                    if (matchResult.isMatch() && matchResult.getConfidence() >= 0.75) {
-                        System.out.println("    => [CHẤP NHẬN] Sản phẩm trùng khớp!");
-                        matchedProducts.add(candidate);
-                    } else {
-                        System.out.println("    => [LOẠI] AI báo không khớp hoặc tin cậy thấp.");
+                        ShopeeProduct candidate = candidatesToCompare.get(i);
+                        GeminiVlmComparator.MatchResult matchResult = batchResults.getOrDefault(i + 1, new GeminiVlmComparator.MatchResult(false, 0.0, "Không có kết quả"));
+
+                        System.out.println("  * Kết quả đối sánh AI cho: " + candidate.getTitle());
+                        System.out.println("    -> Khớp: " + matchResult.isMatch() + 
+                                " (Độ tin cậy: " + String.format("%.2f", matchResult.getConfidence()) + ")");
+                        System.out.println("    -> Lý do: " + matchResult.getReason());
+
+                        if (matchResult.isMatch() && matchResult.getConfidence() >= 0.75) {
+                            System.out.println("    => [CHẤP NHẬN] Sản phẩm trùng khớp!");
+                            matchedProducts.add(candidate);
+                        } else {
+                            System.out.println("    => [LOẠI] AI kết luận không khớp hoặc độ tin cậy thấp.");
+                        }
                     }
                 }
 

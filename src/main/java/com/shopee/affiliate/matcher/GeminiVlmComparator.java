@@ -2,7 +2,10 @@ package com.shopee.affiliate.matcher;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.shopee.affiliate.config.AppConfig;
+import com.shopee.affiliate.browser.ShopeeAutomation.ShopeeProduct;
 
 import java.io.File;
 import java.io.IOException;
@@ -13,22 +16,43 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 /**
- * Đối sánh hình ảnh sử dụng Gemini 2.5 Flash API để kết luận trùng khớp.
+ * Đối sánh hình ảnh sử dụng Gemini API để kết luận trùng khớp.
  */
 public class GeminiVlmComparator {
 
     private final HttpClient httpClient;
     private final Gson gson;
-    private final String apiKey;
+    private final List<String> apiKeys;
+    private int currentKeyIndex;
 
     public GeminiVlmComparator() {
+        this(AppConfig.getGeminiApiKey());
+    }
+
+    public GeminiVlmComparator(String apiKeysString) {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
         this.gson = new Gson();
-        this.apiKey = AppConfig.getGeminiApiKey();
+        this.apiKeys = parseApiKeys(apiKeysString);
+        this.currentKeyIndex = 0;
+    }
+
+    private List<String> parseApiKeys(String apiKeysString) {
+        List<String> list = new ArrayList<>();
+        if (apiKeysString != null && !apiKeysString.trim().isEmpty()) {
+            String[] parts = apiKeysString.split(",");
+            for (String part : parts) {
+                String clean = part.trim();
+                if (!clean.isEmpty()) {
+                    list.add(clean);
+                }
+            }
+        }
+        return list;
     }
 
     /**
@@ -63,30 +87,61 @@ public class GeminiVlmComparator {
         }
     }
 
+    public MatchResult compareImages(List<File> videoFrames, String shopeeImageUrl, String queryName, String shopeeTitle) {
+        ShopeeProduct candidate = new ShopeeProduct(shopeeTitle, shopeeImageUrl, null);
+        Map<Integer, MatchResult> batchResult = compareImagesBatch(videoFrames, Collections.singletonList(candidate), queryName);
+        return batchResult.getOrDefault(1, new MatchResult(false, 0.0, "Không có kết quả đối sánh"));
+    }
+
     /**
-     * So sánh các ảnh cắt từ video với ảnh cào được từ Shopee để xác nhận sản phẩm khớp.
+     * So sánh danh sách các sản phẩm Shopee ứng viên với các khung hình video theo lô (Batch).
      *
      * @param videoFrames Danh sách ảnh trích xuất từ video
-     * @param shopeeImageUrl URL ảnh sản phẩm trên Shopee
+     * @param candidates Danh sách sản phẩm Shopee ứng viên
      * @param queryName Tên sản phẩm cần tìm kiếm
-     * @param shopeeTitle Tên sản phẩm trên Shopee
-     * @return MatchResult Kết quả so khớp từ Gemini
+     * @return Map ánh xạ từ chỉ số của candidate (1-indexed, từ 1 đến N) sang MatchResult tương ứng
      */
-    public MatchResult compareImages(List<File> videoFrames, String shopeeImageUrl, String queryName, String shopeeTitle) {
-        if (apiKey == null || apiKey.trim().isEmpty() || apiKey.equals("YOUR_GEMINI_API_KEY")) {
-            System.err.println("CẢNH BÁO: Chưa cấu hình Gemini API Key. Bỏ qua bước đối sánh ảnh (mặc định không khớp).");
-            return new MatchResult(false, 0.0, "Chưa cấu hình Gemini API Key");
+    public Map<Integer, MatchResult> compareImagesBatch(List<File> videoFrames, List<ShopeeProduct> candidates, String queryName) {
+        Map<Integer, MatchResult> results = new HashMap<>();
+        
+        if (apiKeys.isEmpty() || (apiKeys.size() == 1 && apiKeys.get(0).equals("YOUR_GEMINI_API_KEY"))) {
+            System.err.println("CẢNH BÁO: Chưa cấu hình Gemini API Key. Bỏ qua bước đối sánh ảnh.");
+            for (int i = 0; i < candidates.size(); i++) {
+                results.put(i + 1, new MatchResult(false, 0.0, "Chưa cấu hình Gemini API Key"));
+            }
+            return results;
         }
 
         if (videoFrames == null || videoFrames.isEmpty()) {
-            return new MatchResult(false, 0.0, "Không có khung hình video để đối sánh");
+            for (int i = 0; i < candidates.size(); i++) {
+                results.put(i + 1, new MatchResult(false, 0.0, "Không có khung hình video để đối sánh"));
+            }
+            return results;
+        }
+
+        if (candidates == null || candidates.isEmpty()) {
+            return results;
         }
 
         try {
-            System.out.println("  [Đối sánh hình ảnh] Đang tải ảnh Shopee về bộ nhớ tạm...");
-            byte[] shopeeImageBytes = downloadImage(shopeeImageUrl);
-            String shopeeImageBase64 = Base64.getEncoder().encodeToString(shopeeImageBytes);
-            String shopeeMimeType = detectMimeType(shopeeImageUrl, shopeeImageBytes);
+            System.out.println("  [Đối sánh hình ảnh] Đang tải song song " + candidates.size() + " ảnh Shopee...");
+            
+            List<CompletableFuture<byte[]>> futures = new ArrayList<>();
+            for (ShopeeProduct candidate : candidates) {
+                futures.add(CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return downloadImage(candidate.getImageUrl());
+                    } catch (Exception e) {
+                        System.err.println("Lỗi tải ảnh của candidate: " + candidate.getTitle() + " - " + e.getMessage());
+                        return new byte[0];
+                    }
+                }));
+            }
+
+            List<byte[]> imagesBytes = new ArrayList<>();
+            for (CompletableFuture<byte[]> future : futures) {
+                imagesBytes.add(future.join());
+            }
 
             // Xây dựng JSON payload cho Gemini API
             Map<String, Object> requestBody = new HashMap<>();
@@ -94,27 +149,39 @@ public class GeminiVlmComparator {
             Map<String, Object> contentMap = new HashMap<>();
             List<Map<String, Object>> parts = new ArrayList<>();
 
-            // 1. Thêm Prompt hướng dẫn đối sánh chi tiết
+            // 1. Thêm Prompt hướng dẫn đối sánh chi tiết theo lô
+            StringBuilder promptBuilder = new StringBuilder();
+            promptBuilder.append("You are a precise product matching expert.\n");
+            promptBuilder.append("We have a target physical product shown in the video frames.\n");
+            promptBuilder.append("We need to verify which of the candidate products (from a store search) matches the target product EXACTLY.\n\n");
+            promptBuilder.append("Product Query: \"").append(queryName).append("\"\n\n");
+            promptBuilder.append("Candidate Products to evaluate against the video frames:\n");
+            for (int i = 0; i < candidates.size(); i++) {
+                promptBuilder.append("Candidate ").append(i + 1).append(":\n");
+                promptBuilder.append("  - Title: \"").append(candidates.get(i).getTitle()).append("\"\n");
+            }
+            promptBuilder.append("\nReview instructions:\n");
+            promptBuilder.append("1. For each candidate (from 1 to ").append(candidates.size()).append("), analyze its physical characteristics (ports layout, keyboard layout, case design, logo placement, screen bezels, shape) shown in the corresponding candidate image, and compare it with the target product in the video frames.\n");
+            promptBuilder.append("2. Different versions/models/generations (e.g., HP EliteBook 850 G7 vs G8, or different screen sizes) are NOT a match. They must be the exact same model.\n");
+            promptBuilder.append("3. Respond ONLY with a JSON array where each element is an object for each candidate. The array must contain exactly one object per candidate in order:\n");
+            promptBuilder.append("   - \"index\": integer (from 1 to ").append(candidates.size()).append(")\n");
+            promptBuilder.append("   - \"match\": true (if it is exactly the same model) or false (if different model or not sure)\n");
+            promptBuilder.append("   - \"confidence\": score from 0.0 to 1.0\n");
+            promptBuilder.append("   - \"reason\": brief explanation in Vietnamese stating what matched or mismatched.\n\n");
+            promptBuilder.append("Note on Video Frames: Some video frames may show packaging (boxes), accessories (stands, chargers, selfie sticks), or reviewer's face. Scan through ALL provided video frames to find the main product body. Perform physical comparison using the main product body frames. Only fail/mark match as false if the actual main product is never shown in any of the video frames, or if the physical characteristics of the main product itself do not match.\n");
+
             Map<String, Object> textPart = new HashMap<>();
-            String prompt = "You are a precise product matching expert.\n" +
-                    "We need to verify if the physical product shown in the video frames is EXACTLY the same model as the product in the Shopee store image.\n\n" +
-                    "Product Query: \"" + queryName + "\"\n" +
-                    "Shopee Product Title: \"" + shopeeTitle + "\"\n\n" +
-                    "Review instructions:\n" +
-                    "1. Analyze physical characteristics: ports layout, keyboard layout, case design, logo placement, screen bezels, and shape.\n" +
-                    "2. Different versions/models/generations (e.g., HP EliteBook 850 G7 vs G8, or different screen sizes) are NOT a match. They must be the exact same model.\n" +
-                    "3. Respond ONLY in JSON format containing the following fields:\n" +
-                    "   - \"match\": true (if it is exactly the same model) or false (if different model or not sure)\n" +
-                    "   - \"confidence\": score from 0.0 to 1.0\n" +
-                    "   - \"reason\": brief explanation in Vietnamese stating what matched or mismatched.";
-            textPart.put("text", prompt);
+            textPart.put("text", promptBuilder.toString());
             parts.add(textPart);
 
             // 2. Thêm các ảnh từ video
-            // Để tiết kiệm token và tránh quá tải, ta chỉ gửi tối đa 2 ảnh đặc trưng (ảnh số 1 và số 3 chẳng hạn)
-            int count = 0;
+            Map<String, Object> targetHeaderPart = new HashMap<>();
+            targetHeaderPart.put("text", "\n--- TARGET PRODUCT VIDEO FRAMES ---");
+            parts.add(targetHeaderPart);
+
+            int frameCount = 0;
             for (File frame : videoFrames) {
-                if (count >= 2) break; // Gửi tối đa 2 ảnh video
+                if (frameCount >= 5) break; // Gửi tối đa 5 ảnh video để bao phủ toàn bộ nội dung review
                 byte[] frameBytes = Files.readAllBytes(frame.toPath());
                 String frameBase64 = Base64.getEncoder().encodeToString(frameBytes);
                 
@@ -124,16 +191,31 @@ public class GeminiVlmComparator {
                 inlineData.put("data", frameBase64);
                 imagePart.put("inlineData", inlineData);
                 parts.add(imagePart);
-                count++;
+                frameCount++;
             }
 
-            // 3. Thêm ảnh từ Shopee
-            Map<String, Object> shopeePart = new HashMap<>();
-            Map<String, String> inlineData = new HashMap<>();
-            inlineData.put("mimeType", shopeeMimeType);
-            inlineData.put("data", shopeeImageBase64);
-            shopeePart.put("inlineData", inlineData);
-            parts.add(shopeePart);
+            // 3. Thêm các ảnh ứng viên Shopee
+            for (int i = 0; i < candidates.size(); i++) {
+                byte[] imgBytes = imagesBytes.get(i);
+                if (imgBytes == null || imgBytes.length == 0) {
+                    // Nếu lỗi tải ảnh, đánh dấu thất bại sẵn
+                    results.put(i + 1, new MatchResult(false, 0.0, "Không thể tải ảnh sản phẩm từ Shopee"));
+                    continue;
+                }
+                String imgBase64 = Base64.getEncoder().encodeToString(imgBytes);
+                String mimeType = detectMimeType(candidates.get(i).getImageUrl(), imgBytes);
+
+                Map<String, Object> candidateLabelPart = new HashMap<>();
+                candidateLabelPart.put("text", "\n--- CANDIDATE " + (i + 1) + " IMAGE ---");
+                parts.add(candidateLabelPart);
+
+                Map<String, Object> imagePart = new HashMap<>();
+                Map<String, String> inlineData = new HashMap<>();
+                inlineData.put("mimeType", mimeType);
+                inlineData.put("data", imgBase64);
+                imagePart.put("inlineData", inlineData);
+                parts.add(imagePart);
+            }
 
             contentMap.put("parts", parts);
             contents.add(contentMap);
@@ -146,31 +228,101 @@ public class GeminiVlmComparator {
 
             String jsonPayload = gson.toJson(requestBody);
 
-            // Gửi request tới Gemini 2.5 Flash
-            String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey;
+            // Gửi request tới Gemini API (với cơ chế xoay vòng key khi quá giới hạn)
+            String model = AppConfig.getGeminiModel();
+            HttpResponse<String> response = null;
+            int attempts = 0;
+            int maxAttempts = apiKeys.size();
             
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
-                    .build();
+            while (attempts < maxAttempts) {
+                String currentKey = apiKeys.get(currentKeyIndex);
+                String url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + currentKey;
+                
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                        .build();
 
-            System.out.println("  [Đối sánh hình ảnh] Đang gửi yêu cầu tới Gemini API...");
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                System.out.println("  [Đối sánh hình ảnh] Đang gửi yêu cầu lô tới Gemini API (" + model + ") sử dụng API Key thứ " + (currentKeyIndex + 1) + "...");
+                
+                try {
+                    response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                    
+                    if (response.statusCode() == 200) {
+                        break; // Gọi thành công! Thoát vòng lặp để xử lý phản hồi
+                    } else if (response.statusCode() == 429 || response.statusCode() == 400 || response.statusCode() == 403) {
+                        System.err.println("  [Cảnh báo VLM] API Key thứ " + (currentKeyIndex + 1) + " bị lỗi (HTTP " + response.statusCode() + "). Đang thử xoay vòng sang key tiếp theo...");
+                        currentKeyIndex = (currentKeyIndex + 1) % apiKeys.size();
+                        attempts++;
+                        Thread.sleep(1000); // Đợi 1 giây trước khi thử lại
+                    } else {
+                        // Các mã lỗi khác không xoay vòng (ví dụ lỗi máy chủ hoặc cấu hình sai)
+                        System.err.println("  [Cảnh báo VLM] Lỗi HTTP " + response.statusCode() + " từ Gemini API. Dừng thử lại.");
+                        break;
+                    }
+                } catch (Exception e) {
+                    System.err.println("  [Cảnh báo VLM] Lỗi kết nối mạng khi dùng key thứ " + (currentKeyIndex + 1) + ": " + e.getMessage() + ". Đang thử xoay vòng key...");
+                    currentKeyIndex = (currentKeyIndex + 1) % apiKeys.size();
+                    attempts++;
+                    Thread.sleep(1000);
+                }
+            }
 
-            if (response.statusCode() == 200) {
+            if (response != null && response.statusCode() == 200) {
                 String responseBody = response.body();
-                return parseGeminiResponse(responseBody);
+                JsonObject root = gson.fromJson(responseBody, JsonObject.class);
+                String rawText = root.getAsJsonArray("candidates")
+                        .get(0).getAsJsonObject()
+                        .getAsJsonObject("content")
+                        .getAsJsonArray("parts")
+                        .get(0).getAsJsonObject()
+                        .get("text").getAsString();
+
+                String cleanText = rawText.trim();
+                if (cleanText.startsWith("```")) {
+                    cleanText = cleanText.replaceAll("^```json\\s*", "").replaceAll("```$", "").trim();
+                }
+
+                JsonArray jsonArray = gson.fromJson(cleanText, JsonArray.class);
+                for (JsonElement elem : jsonArray) {
+                    JsonObject obj = elem.getAsJsonObject();
+                    int index = obj.get("index").getAsInt();
+                    boolean match = obj.get("match").getAsBoolean();
+                    double confidence = obj.get("confidence").getAsDouble();
+                    String reason = obj.get("reason").getAsString();
+                    
+                    results.put(index, new MatchResult(match, confidence, reason));
+                }
+                
+                // Điền thêm các kết quả còn thiếu nếu AI bỏ sót
+                for (int i = 0; i < candidates.size(); i++) {
+                    if (!results.containsKey(i + 1)) {
+                        results.put(i + 1, new MatchResult(false, 0.0, "Gemini không phản hồi kết quả cho ứng viên này"));
+                    }
+                }
+                
             } else {
-                System.err.println("Lỗi Gemini API (HTTP " + response.statusCode() + "): " + response.body());
-                return new MatchResult(false, 0.0, "Lỗi Gemini API: HTTP " + response.statusCode());
+                String errorMsg = (response != null) ? "HTTP " + response.statusCode() : "Không thể kết nối đến Gemini API sau khi thử tất cả các Key";
+                System.err.println("Lỗi đối sánh hình ảnh (toàn bộ API Key đều thất bại): " + errorMsg);
+                for (int i = 0; i < candidates.size(); i++) {
+                    if (!results.containsKey(i + 1)) {
+                        results.put(i + 1, new MatchResult(false, 0.0, "Lỗi Gemini API: " + errorMsg));
+                    }
+                }
             }
 
         } catch (Exception e) {
-            System.err.println("Lỗi trong quá trình đối sánh ảnh: " + e.getMessage());
+            System.err.println("Lỗi trong quá trình đối sánh ảnh theo lô: " + e.getMessage());
             e.printStackTrace();
-            return new MatchResult(false, 0.0, "Lỗi xử lý: " + e.getMessage());
+            for (int i = 0; i < candidates.size(); i++) {
+                if (!results.containsKey(i + 1)) {
+                    results.put(i + 1, new MatchResult(false, 0.0, "Lỗi xử lý: " + e.getMessage()));
+                }
+            }
         }
+        
+        return results;
     }
 
     /**

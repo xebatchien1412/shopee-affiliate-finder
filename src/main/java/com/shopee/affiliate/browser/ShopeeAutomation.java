@@ -4,6 +4,7 @@ import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.AriaRole;
 import com.shopee.affiliate.config.AppConfig;
 
+import java.io.File;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,6 +18,7 @@ import java.util.regex.Pattern;
 public class ShopeeAutomation implements AutoCloseable {
 
     private Playwright playwright;
+    private Browser browser;
     private BrowserContext context;
     private Page page;
 
@@ -59,59 +61,208 @@ public class ShopeeAutomation implements AutoCloseable {
         System.out.println("Đang khởi tạo Playwright...");
         playwright = Playwright.create();
 
-        String userDataDir = AppConfig.getChromeUserDataDir();
-        System.out.println("Sử dụng Chrome Profile tại: " + userDataDir);
+        boolean isCdp = AppConfig.isCdp();
+        
+        if (isCdp) {
+            System.out.println("Kết nối tới Chrome thật đang mở qua cổng CDP (http://localhost:9222)...");
+            try {
+                browser = playwright.chromium().connectOverCDP("http://localhost:9222");
+            } catch (Exception e) {
+                System.err.println("Lỗi kết nối CDP: " + e.getMessage());
+                throw new RuntimeException("Không thể kết nối đến Chrome đang mở (cổng 9222).\n" +
+                        "👉 Hướng dẫn: Bạn chỉ cần đúp click vào file 'Mo_Chrome_Debug.bat' trong thư mục dự án để mở trình duyệt, sau đó nhấn chạy lại App!");
+            }
 
-        // Cấu hình khởi chạy Chrome
-        BrowserType.LaunchPersistentContextOptions options = new BrowserType.LaunchPersistentContextOptions()
-                .setHeadless(false) // Cần hiện giao diện để đăng nhập và xử lý trực quan
-                .setChannel("chrome") // Chạy Chrome thực tế trên máy
-                .setViewportSize(1280, 800)
-                .setArgs(List.of(
-                        "--disable-blink-features=AutomationControlled", // Ẩn cờ tự động hóa
-                        "--start-maximized"
-                ));
+            if (!browser.contexts().isEmpty()) {
+                context = browser.contexts().get(0);
+            } else {
+                context = browser.newContext();
+            }
+            
+            System.out.println("Danh sách các trang/tab đang mở trên Chrome:");
+            for (int i = 0; i < context.pages().size(); i++) {
+                System.out.println("  Tab " + i + ": " + context.pages().get(i).url());
+            }
 
-        context = playwright.chromium().launchPersistentContext(Paths.get(userDataDir), options);
-        page = context.newPage();
+            // Tìm kiếm chính xác tab đang mở trang Shopee
+            page = null;
+            for (Page p : context.pages()) {
+                if (p.url().contains("shopee.vn")) {
+                    page = p;
+                    System.out.println("=> [CDP] Đã phát hiện và kết nối thành công vào Tab Shopee: " + p.url());
+                    break;
+                }
+            }
+
+            if (page == null) {
+                // Nếu không thấy tab Shopee, tìm tab đầu tiên mở trang web (bắt đầu bằng http/https)
+                for (Page p : context.pages()) {
+                    if (p.url().startsWith("http")) {
+                        page = p;
+                        System.out.println("=> [CDP] Không có tab Shopee, kết nối vào Tab hoạt động đầu tiên: " + p.url());
+                        break;
+                    }
+                }
+            }
+
+            if (page == null) {
+                // Nếu vẫn không có tab nào hợp lệ, tiến hành mở tab mới
+                page = context.newPage();
+                System.out.println("=> [CDP] Không tìm thấy tab khả dụng. Đã tự động tạo Tab mới.");
+            }
+        } else {
+            String userDataDir = AppConfig.getChromeUserDataDir();
+            System.out.println("Sử dụng Chrome Profile tại: " + userDataDir);
+
+            // Cấu hình khởi chạy Chrome ở chế độ ẩn danh tự động hóa (Stealth Mode)
+            BrowserType.LaunchPersistentContextOptions options = new BrowserType.LaunchPersistentContextOptions()
+                    .setHeadless(false) // Cần hiện giao diện để đăng nhập và xử lý trực quan
+                    .setChannel("chrome") // Chạy Chrome thực tế trên máy
+                    .setViewportSize(1280, 800)
+                    .setIgnoreDefaultArgs(List.of("--enable-automation")) // Bỏ qua cờ mặc định thông báo tự động hóa của Chrome
+                    .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .setLocale("vi-VN")
+                    .setArgs(List.of(
+                            "--disable-blink-features=AutomationControlled", // Ẩn cờ tự động hóa Blink
+                            "--start-maximized",
+                            "--disable-infobars"
+                    ));
+
+            context = playwright.chromium().launchPersistentContext(Paths.get(userDataDir), options);
+        }
+
+        // Tiêm mã giả lập: Xóa toàn bộ các dấu vết tự động hóa để tránh bị Shopee chặn captcha
+        context.addInitScript(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});\n" +
+            "Object.defineProperty(navigator, 'languages', {get: () => ['vi-VN', 'vi', 'en-US', 'en']});\n" +
+            "Object.defineProperty(navigator, 'plugins', {get: () => [\n" +
+            "    { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },\n" +
+            "    { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' }\n" +
+            "]});\n" +
+            "window.chrome = {\n" +
+            "    app: { isInstalled: false },\n" +
+            "    runtime: { connect: () => {}, sendMessage: () => {} }\n" +
+            "};\n" +
+            "const originalQuery = window.navigator.permissions.query;\n" +
+            "window.navigator.permissions.query = (parameters) => (\n" +
+            "    parameters.name === 'notifications' ?\n" +
+            "        Promise.resolve({ state: Notification.permission }) :\n" +
+            "        originalQuery(parameters)\n" +
+            ");\n" +
+            "try {\n" +
+            "    for (const key in document) {\n" +
+            "        if (key.startsWith('$cdc_') || key.includes('cdc_') || key.includes('cdc')) {\n" +
+            "            delete document[key];\n" +
+            "        }\n" +
+            "    }\n" +
+            "} catch (e) {}\n"
+        );
+        
+        // Chỉ khởi tạo page nếu page chưa được gắn (CDP có thể đã có sẵn tab)
+        if (page == null) {
+            page = context.newPage();
+        }
         
         // Thiết lập timeout mặc định là 30 giây
         page.setDefaultTimeout(30000);
     }
 
+
+
     /**
      * Kiểm tra trạng thái đăng nhập và yêu cầu người dùng đăng nhập nếu cần.
      */
     public void checkLoginAndNavigate() {
-        System.out.println("Đang điều hướng đến trang Shopee Affiliate Offer...");
-        page.navigate("https://affiliate.shopee.vn/offer/product_offer");
+        // Chờ 500ms để Playwright đồng bộ hóa trạng thái URL của trang CDP
+        try {
+            page.waitForTimeout(500);
+        } catch (Exception ignored) {}
 
-        // Đợi một chút để trang tải hoặc chuyển hướng
-        page.waitForTimeout(3000);
-
-        // Kiểm tra xem có đang ở trang đăng nhập hoặc có ô đăng nhập không
-        boolean isLoginPage = page.url().contains("login") || 
-                             page.locator("input[type='password']").count() > 0 || 
-                             page.locator("text=Đăng nhập").count() > 0;
-
-        if (isLoginPage) {
-            System.out.println("\n============================================================");
-            System.out.println("CẢNH BÁO: Bạn chưa đăng nhập vào hệ thống Shopee Affiliate!");
-            System.out.println("Vui lòng thực hiện đăng nhập trên trình duyệt Chrome vừa mở.");
-            System.out.println("Sau khi đăng nhập thành công và thấy giao diện Tìm kiếm Sản phẩm,");
-            System.out.println("vui lòng quay lại đây và nhấn phím ENTER để tiếp tục...");
-            System.out.println("============================================================\n");
-
-            Scanner scanner = new Scanner(System.in);
-            scanner.nextLine();
-            
-            // Tải lại trang sau khi người dùng đã đăng nhập
-            System.out.println("Đang kiểm tra lại phiên đăng nhập...");
-            page.navigate("https://affiliate.shopee.vn/offer/product_offer");
-            page.waitForTimeout(3000);
+        String currentUrl = page.url();
+        System.out.println("[Debug CDP] Tab URL hiện tại: " + currentUrl);
+        
+        if (currentUrl != null && currentUrl.contains("offer/product_offer")) {
+            System.out.println("Bạn đã ở sẵn trang Tìm kiếm sản phẩm. Bỏ qua bước điều hướng tự động để tránh kích hoạt anti-bot.");
         } else {
-            System.out.println("Đã nhận diện phiên đăng nhập thành công.");
+            System.out.println("Đang điều hướng đến trang Shopee Affiliate Offer...");
+            try {
+                page.navigate("https://affiliate.shopee.vn/offer/product_offer");
+                page.waitForTimeout(3000);
+            } catch (Exception e) {
+                System.err.println("Cảnh báo điều hướng: " + e.getMessage());
+            }
         }
+
+        boolean isNotReady = true;
+        while (isNotReady) {
+            // Kiểm tra xem đã ở đúng trang sản phẩm chưa
+            isNotReady = !page.url().contains("offer/product_offer");
+
+            if (!isNotReady) {
+                System.out.println("Đã nhận diện phiên đăng nhập và trang Tìm kiếm sản phẩm thành công.");
+                break;
+            }
+
+            System.out.println("\n============================================================");
+            System.out.println("CẢNH BÁO: Bạn chưa đăng nhập hoặc chưa vào trang tìm kiếm sản phẩm!");
+            System.out.println("Vui lòng thực hiện đăng nhập và đi tới trang Tìm kiếm sản phẩm.");
+            
+            if (System.getProperty("gui.input.dir") != null) {
+                System.out.println("Vui lòng xác nhận qua hộp thoại pop-up trên màn hình...");
+                System.out.println("============================================================\n");
+                
+                int choice = javax.swing.JOptionPane.showConfirmDialog(null,
+                        "Bạn chưa đăng nhập hoặc chưa vào trang tìm kiếm sản phẩm Shopee Affiliate!\n\n" +
+                        "1. Vui lòng thực hiện đăng nhập trên trình duyệt Chrome vừa mở.\n" +
+                        "2. Đảm bảo trình duyệt đang ở trang Tìm kiếm Sản phẩm (Product Offer).\n" +
+                        "3. Sau đó quay lại đây và nhấn [YES] để tiếp tục quy trình tự động.\n" +
+                        "   (Nhấn [NO] hoặc [CANCEL] để dừng chương trình).",
+                        "Yêu cầu Đăng nhập & Vào trang Tìm kiếm",
+                        javax.swing.JOptionPane.YES_NO_OPTION,
+                        javax.swing.JOptionPane.WARNING_MESSAGE);
+                        
+                if (choice != javax.swing.JOptionPane.YES_OPTION) {
+                    throw new RuntimeException("Đã dừng tiến trình tự động hóa theo yêu cầu người dùng do chưa đăng nhập hoặc chưa đúng trang.");
+                }
+            } else {
+                System.out.println("Sau khi đăng nhập thành công và thấy giao diện Tìm kiếm Sản phẩm,");
+                System.out.println("vui lòng quay lại đây và nhấn phím ENTER để tiếp tục...");
+                System.out.println("============================================================\n");
+
+                Scanner scanner = new Scanner(System.in);
+                scanner.nextLine();
+            }
+            
+            // Tải lại trang sau khi người dùng xác nhận đã đăng nhập để kiểm tra lại
+            System.out.println("Đang kiểm tra lại phiên đăng nhập...");
+            if (!page.url().contains("offer/product_offer")) {
+                page.navigate("https://affiliate.shopee.vn/offer/product_offer");
+                page.waitForTimeout(3000);
+            }
+        }
+    }
+
+    /**
+     * Kiểm tra xem ô tìm kiếm sản phẩm có tồn tại và hiển thị trên trang không.
+     */
+    private boolean isSearchInputPresent() {
+        String[] inputSelectors = {
+                "input[placeholder*='tên sản phẩm']",
+                "input[placeholder*='Tìm kiếm']",
+                "input[placeholder*='link']",
+                "input[placeholder*='offer']",
+                "input.ant-input",
+                "input[type='text']"
+        };
+        for (String selector : inputSelectors) {
+            try {
+                Locator loc = page.locator(selector).first();
+                if (loc.count() > 0 && loc.isVisible()) {
+                    return true;
+                }
+            } catch (Exception ignored) {}
+        }
+        return false;
     }
 
     /**
@@ -161,53 +312,122 @@ public class ShopeeAutomation implements AutoCloseable {
             page.keyboard().press("Enter");
 
             System.out.println("Đã gửi lệnh tìm kiếm, chờ tải dữ liệu kết quả...");
-            // Đợi bảng dữ liệu tải xong (Ant Design Table thường có lớp ant-table-tbody)
-            page.waitForTimeout(3000); // Đợi cứng 3s để API Shopee trả dữ liệu
+            // Đợi bảng dữ liệu tải xong (thường 3 giây)
+            page.waitForTimeout(3000);
 
-            // Bắt đầu cào dữ liệu từ bảng kết quả
-            // Tìm các dòng trong bảng hoặc các card sản phẩm
-            // Thường là thẻ tr trong tbody
-            Locator rows = page.locator("tr.ant-table-row");
-            int rowCount = rows.count();
-            
-            if (rowCount == 0) {
-                // Thử tìm theo cấu trúc div nếu Shopee đổi giao diện dạng card
-                rows = page.locator(".ant-list-item");
-                rowCount = rows.count();
+            // Chẩn đoán DOM để tìm cấu trúc chứa thẻ "Get Link" hoặc "Lấy Link"
+            try {
+                String diagnostic = (String) page.evaluate(
+                    "() => {\n" +
+                    "    const elements = Array.from(document.querySelectorAll('*'));\n" +
+                    "    const getLinkElements = elements.filter(el => el.textContent && (el.textContent.trim().includes('Get Link') || el.textContent.trim().includes('Lấy Link') || el.textContent.trim().includes('Lấy link')));\n" +
+                    "    let result = 'Found Link elements: ' + getLinkElements.length + '\\n';\n" +
+                    "    getLinkElements.slice(0, 3).forEach((el, index) => {\n" +
+                    "        let parent = el.parentElement;\n" +
+                    "        let paths = [];\n" +
+                    "        while (parent && parent !== document.body) {\n" +
+                    "            paths.push(parent.tagName + (parent.className ? '.' + parent.className.split(' ').join('.') : ''));\n" +
+                    "            parent = parent.parentElement;\n" +
+                    "        }\n" +
+                    "        result += `Path ${index}: ` + paths.slice(0, 5).join(' < ') + '\\n';\n" +
+                    "    });\n" +
+                    "    return result;\n" +
+                    "}"
+                );
+                System.out.println("[Diagnose DOM] " + diagnostic);
+            } catch (Exception e) {
+                System.out.println("[Diagnose DOM] Lỗi chẩn đoán: " + e.getMessage());
             }
 
-            System.out.println("Tìm thấy " + rowCount + " dòng kết quả hiển thị trên trang.");
+            int currentPage = 1;
+            int maxPages = 3; // Giới hạn tối đa 3 trang kết quả để tránh quét quá nhiều
 
-            for (int i = 0; i < rowCount; i++) {
-                Locator row = rows.nth(i);
+            while (currentPage <= maxPages) {
+                // Bắt đầu cào dữ liệu từ bảng kết quả trang hiện tại
+                Locator rows = page.locator("tr.ant-table-row");
+                int rowCount = rows.count();
                 
-                // Trích xuất hình ảnh
-                Locator imgLocator = row.locator("img").first();
-                String imageUrl = "";
-                if (imgLocator.count() > 0) {
-                    imageUrl = imgLocator.getAttribute("src");
+                if (rowCount == 0) {
+                    // Thử tìm theo cấu trúc div nếu Shopee đổi giao diện dạng card
+                    rows = page.locator(".ant-list-item");
+                    rowCount = rows.count();
                 }
 
-                // Trích xuất tiêu đề sản phẩm
-                // Tiêu đề thường nằm trong div có chữ đậm hoặc có class cụ thể, hoặc text đầu tiên dài
-                String rowText = row.innerText();
-                String title = parseProductTitle(rowText);
-
-                // Tìm nút "Lấy Link" hoặc "Get Link"
-                // Thử nhiều biến thể chữ viết
-                Locator btn = row.locator("button:has-text('Lấy Link')").first();
-                if (btn.count() == 0) {
-                    btn = row.locator("button:has-text('Get Link')").first();
-                }
-                if (btn.count() == 0) {
-                    btn = row.locator("button:has-text('Lấy link')").first();
-                }
-                if (btn.count() == 0) {
-                    btn = row.locator("button").first(); // Fallback nút đầu tiên của dòng
+                if (rowCount == 0) {
+                    // Tìm các cột/thẻ ant-col hoặc thẻ card chứa nút lấy link (Cực kỳ tổng quát)
+                    rows = page.locator("//div[(contains(@class, 'ant-col') or contains(@class, 'ant-list-item') or contains(@class, 'card') or contains(@class, 'item')) and .//*[contains(text(), 'Link') or contains(text(), 'Lấy')]]");
+                    rowCount = rows.count();
                 }
 
-                if (btn.count() > 0 && !imageUrl.isEmpty() && !title.isEmpty()) {
-                    products.add(new ShopeeProduct(title, imageUrl, btn));
+                System.out.println("Trang " + currentPage + ": Tìm thấy " + rowCount + " dòng/ô kết quả hiển thị trên trang.");
+
+                for (int i = 0; i < rowCount; i++) {
+                    Locator row = rows.nth(i);
+                    
+                    // Trích xuất hình ảnh
+                    Locator imgLocator = row.locator("img").first();
+                    String imageUrl = "";
+                    if (imgLocator.count() > 0) {
+                        imageUrl = imgLocator.getAttribute("src");
+                    }
+
+                    // Trích xuất tiêu đề sản phẩm
+                    String rowText = row.innerText();
+                    String title = parseProductTitle(rowText);
+
+                    // Tìm nút "Lấy Link" hoặc "Get Link" (chấp nhận cả button, a, [role='button'], .ant-btn có chứa text chính xác)
+                    Locator btn = row.locator("button, a, [role='button'], .ant-btn")
+                            .filter(new Locator.FilterOptions().setHasText(java.util.regex.Pattern.compile("^(Get Link|Lấy Link|Lấy link)$", java.util.regex.Pattern.CASE_INSENSITIVE)))
+                            .first();
+
+                    if (btn.count() == 0) {
+                        // Dự phòng nếu text có chứa khoảng trắng thừa hoặc cấu trúc lồng nhau phức tạp
+                        btn = row.locator("button, a, [role='button'], .ant-btn")
+                                .filter(new Locator.FilterOptions().setHasText(java.util.regex.Pattern.compile(".*(Get Link|Lấy Link|Lấy link).*", java.util.regex.Pattern.CASE_INSENSITIVE)))
+                                .first();
+                    }
+
+                    if (btn.count() == 0) {
+                        // Dự phòng cuối cùng: Tìm bất kỳ span nào có chứa chữ và nằm trong cấu trúc nút
+                        btn = row.locator("button span, a span, .ant-btn span")
+                                .filter(new Locator.FilterOptions().setHasText(java.util.regex.Pattern.compile(".*(Link|Lấy).*", java.util.regex.Pattern.CASE_INSENSITIVE)))
+                                .first();
+                    }
+                    
+                    if (btn.count() == 0) {
+                        btn = row.locator("button, a").first(); // Fallback nút/link đầu tiên của dòng
+                    }
+
+                    if (btn.count() > 0 && !imageUrl.isEmpty() && !title.isEmpty()) {
+                        // Kiểm tra tránh trùng lặp sản phẩm giữa các trang
+                        boolean alreadyExist = false;
+                        for (ShopeeProduct existing : products) {
+                            if (existing.getTitle().equalsIgnoreCase(title)) {
+                                alreadyExist = true;
+                                break;
+                            }
+                        }
+                        if (!alreadyExist) {
+                            products.add(new ShopeeProduct(title, imageUrl, btn));
+                        }
+                    }
+                }
+
+                // Kiểm tra xem có nút trang tiếp theo và nó có khả dụng không
+                Locator nextBtn = page.locator(".ant-pagination-next:not(.ant-pagination-disabled), button.ant-pagination-next:not([disabled])").first();
+                if (nextBtn.count() > 0 && nextBtn.isVisible() && nextBtn.isEnabled()) {
+                    System.out.println("  -> Phát hiện còn trang kết quả tiếp theo. Đang bấm chuyển sang trang " + (currentPage + 1) + "...");
+                    try {
+                        nextBtn.click();
+                        page.waitForTimeout(2500); // Chờ trang mới tải xong dữ liệu
+                        currentPage++;
+                    } catch (Exception e) {
+                        System.err.println("  -> Không thể chuyển sang trang tiếp theo: " + e.getMessage());
+                        break;
+                    }
+                } else {
+                    System.out.println("  -> Không còn trang kết quả tiếp theo. Kết thúc cào tìm kiếm.");
+                    break;
                 }
             }
 
@@ -317,6 +537,9 @@ public class ShopeeAutomation implements AutoCloseable {
         try {
             if (context != null) {
                 context.close();
+            }
+            if (browser != null) {
+                browser.close();
             }
             if (playwright != null) {
                 playwright.close();

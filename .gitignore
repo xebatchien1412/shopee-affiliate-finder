@@ -21,3 +21,6 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 .DS_Store
+
+# Local configuration files
+config.properties

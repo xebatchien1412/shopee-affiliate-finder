@@ -23,6 +23,25 @@ public class TextMatcher {
         String q = query.toLowerCase().replaceAll("[^a-zA-Z0-9\\s]", " ");
         String c = candidate.toLowerCase().replaceAll("[^a-zA-Z0-9\\s]", " ");
 
+        // Kiểm tra lọc lệch phụ kiện (Accessory Check)
+        // Nếu tên sản phẩm tìm thấy chứa từ khóa phụ kiện (sạc, túi, ốp, dán...) nhưng tên thư mục gốc không có, loại bỏ luôn.
+        String[] accessoryKeywords = {
+            "sạc", "sac", "cáp", "cap", "túi", "tui", "bao", "ốp", "op", "dán", "dan", "skin", "phím", "phim", "chuột", "chuot", 
+            "lót", "lot", "pad", "đế", "de", "tản", "tan", "nhiệt", "nhiet", "linh", "kiện", "kien", "thay", "thế", "the", 
+            "sửa", "sua", "chữa", "chua", "chống", "chong", "sốc", "soc", "cường", "cuong", "lực", "luc", "case", "sleeve", 
+            "charger", "adapter", "cable", "keyboard", "cover", "decal", "protector", "screen", "film", "tai", "nghe", "loa", 
+            "balo", "quạt", "quat"
+        };
+        for (String acc : accessoryKeywords) {
+            // Bao gồm so khớp cả có dấu và không dấu
+            boolean qHas = q.contains(acc);
+            boolean cHas = c.contains(acc);
+            if (cHas && !qHas) {
+                System.out.println("  [Lọc phụ kiện] Loại bỏ '" + candidate + "' vì chứa từ khóa phụ kiện '" + acc + "' mà truy vấn gốc không yêu cầu.");
+                return false;
+            }
+        }
+
         // Tách các từ riêng lẻ
         String[] qWords = q.split("\\s+");
         String[] cWords = c.split("\\s+");
@@ -34,31 +53,41 @@ public class TextMatcher {
             }
         }
 
-        // Đếm số lượng từ khóa quan trọng của query có mặt trong candidate
-        int importantWordsMatched = 0;
-        int importantWordsTotal = 0;
-
+        // Lọc ra tập hợp các từ khóa quan trọng thực sự của query và candidate
+        Set<String> qImportantWords = new HashSet<>();
         for (String word : qWords) {
-            String cleanWord = word.trim();
-            if (cleanWord.isEmpty() || isStopWord(cleanWord)) {
-                continue; // Bỏ qua từ dừng (như: laptop, may, tinh...)
-            }
-
-            importantWordsTotal++;
-            if (cWordSet.contains(cleanWord)) {
-                importantWordsMatched++;
+            String clean = word.trim();
+            if (!clean.isEmpty() && !isStopWord(clean)) {
+                qImportantWords.add(clean);
             }
         }
 
-        if (importantWordsTotal == 0) {
-            // Nếu không có từ khóa đặc trưng, so sánh độ tương đồng Jaccard tổng quát
+        Set<String> cImportantWords = new HashSet<>();
+        for (String word : cWords) {
+            String clean = word.trim();
+            if (!clean.isEmpty() && !isStopWord(clean)) {
+                cImportantWords.add(clean);
+            }
+        }
+
+        // Tìm phần giao các từ khóa quan trọng trùng nhau
+        Set<String> matchedWords = new HashSet<>(qImportantWords);
+        matchedWords.retainAll(cImportantWords);
+        int matchedCount = matchedWords.size();
+
+        int totalQueryImportant = qImportantWords.size();
+        int totalCandidateImportant = cImportantWords.size();
+        int denom = Math.min(totalQueryImportant, totalCandidateImportant);
+
+        if (denom == 0) {
+            // Nếu một trong hai không có từ khóa đặc trưng, so sánh Jaccard tổng quát
             return calculateJaccardSimilarity(q, c) > 0.4;
         }
 
-        // Yêu cầu khớp tối thiểu 70% số từ khóa quan trọng (ví dụ "850" và "g7")
-        double matchRatio = (double) importantWordsMatched / importantWordsTotal;
-        System.out.println("  [Lọc văn bản] '" + candidate + "' vs '" + query + "' -> Tỷ lệ khớp từ khóa: " + 
-                String.format("%.2f", matchRatio * 100) + "%");
+        // Tỷ lệ khớp tính trên số từ khóa của chuỗi ngắn hơn (tránh lệch khi tên một bên quá dài)
+        double matchRatio = (double) matchedCount / denom;
+        System.out.println("  [Lọc văn bản] '" + candidate + "' vs '" + query + "' -> Khớp từ quan trọng: " + 
+                matchedCount + "/" + denom + " (" + String.format("%.2f", matchRatio * 100) + "%)");
         
         return matchRatio >= 0.7;
     }

@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Lớp chạy chính điều phối toàn bộ quy trình tự động hóa.
@@ -116,48 +117,45 @@ public class Main {
 
                 // Bước 2: Tìm kiếm sản phẩm trên Shopee
                 List<ShopeeProduct> searchResults = automation.searchProduct(metadata.getProductName());
-                if (searchResults.isEmpty()) {
-                    System.out.println("  -> Không tìm thấy kết quả nào trên Shopee với từ khóa này.");
-                    cleanDirectory(productTempDir);
-                    continue;
+                List<ShopeeProduct> candidatesToCompare = new ArrayList<>();
+                for (ShopeeProduct candidate : searchResults) {
+                    System.out.println("  * Tiền lọc văn bản: " + candidate.getTitle());
+                    if (TextMatcher.isTextMatch(metadata.getProductName(), candidate.getTitle())) {
+                        candidatesToCompare.add(candidate);
+                        System.out.println("    => [OK] Đạt tiêu chuẩn lọc từ khóa.");
+                    } else {
+                        System.out.println("    => [LOẠI] Tên sản phẩm không khớp từ khóa.");
+                    }
                 }
 
-                // Danh sách chứa các sản phẩm Shopee vượt qua cả vòng lọc text và đối sánh ảnh
                 List<ShopeeProduct> matchedProducts = new ArrayList<>();
 
-                // Bước 3: Duyệt qua các kết quả tìm kiếm và đối sánh
-                for (ShopeeProduct candidate : searchResults) {
-                    // Tránh lấy trùng các sản phẩm đã có hoặc đã vượt quá giới hạn
-                    if (metadata.getAffiliateLinks().size() + matchedProducts.size() >= maxLinks) {
-                        break;
-                    }
-
-                    System.out.println("  * Đang kiểm tra kết quả: " + candidate.getTitle());
-
-                    // A. Tiền lọc văn bản (Text Matcher)
-                    if (!TextMatcher.isTextMatch(metadata.getProductName(), candidate.getTitle())) {
-                        System.out.println("    -> [LOẠI] Tên sản phẩm không khớp từ khóa.");
-                        continue;
-                    }
-
-                    // B. Đối sánh ảnh bằng Gemini API
-                    MatchResult imageMatch = vlmComparator.compareImages(
-                            extractedFrames, 
-                            candidate.getImageUrl(), 
-                            metadata.getProductName(), 
-                            candidate.getTitle()
+                if (!candidatesToCompare.isEmpty()) {
+                    // Chạy đối sánh ảnh theo lô (Batch Mode)
+                    Map<Integer, MatchResult> batchResults = vlmComparator.compareImagesBatch(
+                            extractedFrames, candidatesToCompare, metadata.getProductName()
                     );
 
-                    System.out.println("    -> [KẾT QUẢ AI] Khớp: " + imageMatch.isMatch() + 
-                            " (Độ tin cậy: " + String.format("%.2f", imageMatch.getConfidence()) + ")");
-                    System.out.println("    -> Lý do: " + imageMatch.getReason());
+                    for (int i = 0; i < candidatesToCompare.size(); i++) {
+                        // Kiểm tra nếu tổng số link hiện tại + số link khớp chuẩn bị lấy đã vượt quá giới hạn
+                        if (metadata.getAffiliateLinks().size() + matchedProducts.size() >= maxLinks) {
+                            break;
+                        }
 
-                    // Chỉ chấp nhận nếu AI báo khớp và độ tin cậy >= 0.75
-                    if (imageMatch.isMatch() && imageMatch.getConfidence() >= 0.75) {
-                        System.out.println("    => [CHẤP NHẬN] Sản phẩm trùng khớp hoàn hảo!");
-                        matchedProducts.add(candidate);
-                    } else {
-                        System.out.println("    => [LOẠI] AI kết luận không trùng khớp hoặc độ tin cậy thấp.");
+                        ShopeeProduct candidate = candidatesToCompare.get(i);
+                        MatchResult matchResult = batchResults.getOrDefault(i + 1, new MatchResult(false, 0.0, "Không có kết quả"));
+
+                        System.out.println("  * Kết quả đối sánh AI cho: " + candidate.getTitle());
+                        System.out.println("    -> Khớp: " + matchResult.isMatch() + 
+                                " (Độ tin cậy: " + String.format("%.2f", matchResult.getConfidence()) + ")");
+                        System.out.println("    -> Lý do: " + matchResult.getReason());
+
+                        if (matchResult.isMatch() && matchResult.getConfidence() >= 0.75) {
+                            System.out.println("    => [CHẤP NHẬN] Sản phẩm trùng khớp hoàn hảo!");
+                            matchedProducts.add(candidate);
+                        } else {
+                            System.out.println("    => [LOẠI] AI kết luận không khớp hoặc độ tin cậy thấp.");
+                        }
                     }
                 }
 
