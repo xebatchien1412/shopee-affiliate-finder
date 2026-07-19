@@ -344,7 +344,7 @@ public class ShopeeAutomation implements AutoCloseable {
             }
 
             int currentPage = 1;
-            int maxPages = 3; // Giới hạn tối đa 3 trang kết quả để tránh quét quá nhiều
+            int maxPages = 10; // Giới hạn tối đa 10 trang kết quả để tránh quét quá nhiều
 
             while (currentPage <= maxPages) {
                 // Bắt đầu cào dữ liệu từ bảng kết quả trang hiện tại
@@ -542,7 +542,7 @@ public class ShopeeAutomation implements AutoCloseable {
             }
 
             int currentPage = 1;
-            int maxPages = 3;
+            int maxPages = 10; // Giới hạn quét tối đa 10 trang kết quả
 
             while (currentPage <= maxPages) {
                 if (isCancelled.getAsBoolean()) {
