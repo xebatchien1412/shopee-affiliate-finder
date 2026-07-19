@@ -61,7 +61,7 @@ public class AppConfig {
     public static boolean isCdp() {
         String cdp = System.getProperty("gui.browser.cdp");
         if (cdp == null || cdp.trim().isEmpty()) {
-            cdp = getProperty("browser.cdp", "false");
+            cdp = getProperty("browser.cdp", "true");
         }
         return Boolean.parseBoolean(cdp);
     }
