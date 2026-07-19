@@ -425,7 +425,7 @@ public class ShopeeAutomation implements AutoCloseable {
 
                 // Tìm nút trang tiếp theo bằng cách duyệt qua toàn bộ ứng viên trên DOM để tìm nút hiển thị và hoạt động
                 Locator nextBtn = null;
-                Locator nextBtnCandidates = page.locator("li.ant-pagination-next, li.ant-pagination-next button, li.ant-pagination-next a, button.ant-pagination-next");
+                Locator nextBtnCandidates = page.locator("span.page-next, .page-next, li.ant-pagination-next, li.ant-pagination-next button, li.ant-pagination-next a, button.ant-pagination-next");
                 int candidateCount = nextBtnCandidates.count();
                 for (int c = 0; c < candidateCount; c++) {
                     Locator cand = nextBtnCandidates.nth(c);
@@ -685,7 +685,7 @@ public class ShopeeAutomation implements AutoCloseable {
                             "}");
                     System.out.println("  [Chẩn đoán Phân Trang] Các class liên quan đến page/pagination tìm thấy: " + rawClasses);
 
-                    Locator debugNext = page.locator("li.ant-pagination-next, button.ant-pagination-next");
+                    Locator debugNext = page.locator("span.page-next, .page-next, li.ant-pagination-next, button.ant-pagination-next");
                     int debugCount = debugNext.count();
                     System.out.println("  [Chẩn đoán Phân Trang] Tìm thấy " + debugCount + " phần tử Next Page trên DOM.");
                     for (int d = 0; d < debugCount; d++) {
@@ -702,7 +702,7 @@ public class ShopeeAutomation implements AutoCloseable {
 
                 // Tìm nút trang tiếp theo bằng cách duyệt qua toàn bộ ứng viên trên DOM để tìm nút hiển thị và hoạt động
                 Locator nextBtn = null;
-                Locator nextBtnCandidates = page.locator("li.ant-pagination-next, li.ant-pagination-next button, li.ant-pagination-next a, button.ant-pagination-next");
+                Locator nextBtnCandidates = page.locator("span.page-next, .page-next, li.ant-pagination-next, li.ant-pagination-next button, li.ant-pagination-next a, button.ant-pagination-next");
                 int candidateCount = nextBtnCandidates.count();
                 for (int c = 0; c < candidateCount; c++) {
                     Locator cand = nextBtnCandidates.nth(c);
