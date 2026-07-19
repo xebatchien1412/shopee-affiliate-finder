@@ -417,6 +417,12 @@ public class ShopeeAutomation implements AutoCloseable {
                     }
                 }
 
+                // Cuộn xuống cuối trang để kích hoạt hiển thị bộ phân trang (lazy rendering)
+                try {
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
+                    page.waitForTimeout(1000);
+                } catch (Exception e) {}
+
                 // Tìm nút trang tiếp theo bằng cách duyệt qua toàn bộ ứng viên trên DOM để tìm nút hiển thị và hoạt động
                 Locator nextBtn = null;
                 Locator nextBtnCandidates = page.locator("li.ant-pagination-next, li.ant-pagination-next button, li.ant-pagination-next a, button.ant-pagination-next");
@@ -661,6 +667,12 @@ public class ShopeeAutomation implements AutoCloseable {
                     System.out.println("Đã lấy đủ số link yêu cầu (" + maxLinks + "). Kết thúc quét trang.");
                     break;
                 }
+
+                // Cuộn xuống cuối trang để kích hoạt hiển thị bộ phân trang (lazy rendering)
+                try {
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
+                    page.waitForTimeout(1000);
+                } catch (Exception e) {}
 
                 // [Debug] In chi tiết cấu trúc DOM của nút phân trang để chẩn đoán chính xác
                 try {
