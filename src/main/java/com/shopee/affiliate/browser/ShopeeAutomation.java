@@ -676,6 +676,15 @@ public class ShopeeAutomation implements AutoCloseable {
 
                 // [Debug] In chi tiết cấu trúc DOM của nút phân trang để chẩn đoán chính xác
                 try {
+                    // Dò tìm tất cả các element có class chứa từ khóa 'page' hoặc 'pagination'
+                    Object rawClasses = page.evaluate("() => {" +
+                            "  return Array.from(document.querySelectorAll('*'))" +
+                            "    .filter(el => el.className && typeof el.className === 'string' && (el.className.toLowerCase().includes('pagination') || el.className.toLowerCase().includes('page')))" +
+                            "    .map(el => el.tagName + '.' + el.className.split(' ').join('.'))" +
+                            "    .slice(0, 40);" +
+                            "}");
+                    System.out.println("  [Chẩn đoán Phân Trang] Các class liên quan đến page/pagination tìm thấy: " + rawClasses);
+
                     Locator debugNext = page.locator("li.ant-pagination-next, button.ant-pagination-next");
                     int debugCount = debugNext.count();
                     System.out.println("  [Chẩn đoán Phân Trang] Tìm thấy " + debugCount + " phần tử Next Page trên DOM.");
