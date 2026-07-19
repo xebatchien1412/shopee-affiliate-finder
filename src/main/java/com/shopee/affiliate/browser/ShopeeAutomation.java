@@ -3,11 +3,15 @@ package com.shopee.affiliate.browser;
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.AriaRole;
 import com.shopee.affiliate.config.AppConfig;
+import com.shopee.affiliate.matcher.GeminiVlmComparator;
+import com.shopee.affiliate.matcher.TextMatcher;
 
 import java.io.File;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Scanner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -437,6 +441,218 @@ public class ShopeeAutomation implements AutoCloseable {
         }
 
         return products;
+    }
+
+    /**
+     * Tìm kiếm sản phẩm trên Shopee Affiliate, phân trang và đối sánh/lấy link trực tiếp từng trang.
+     * Cách tiếp cận này giúp tránh lỗi stale element của Playwright khi chuyển trang.
+     */
+    public List<String> searchAndProcessAffiliateLinks(
+            String query, 
+            GeminiVlmComparator vlmComparator, 
+            List<File> extractedFrames, 
+            int maxLinks, 
+            List<String> existingLinks,
+            java.util.function.BooleanSupplier isCancelled
+    ) {
+        List<String> resultsLinks = new ArrayList<>(existingLinks);
+        
+        try {
+            // Nhập ô tìm kiếm và Enter
+            Locator searchInput = null;
+            String[] inputSelectors = {
+                    "input[placeholder*='tên sản phẩm']",
+                    "input[placeholder*='Tìm kiếm']",
+                    "input[placeholder*='link']",
+                    "input[placeholder*='offer']",
+                    "input.ant-input",
+                    "input[type='text']"
+            };
+
+            for (String selector : inputSelectors) {
+                Locator loc = page.locator(selector).first();
+                if (loc.count() > 0 && loc.isVisible()) {
+                    searchInput = loc;
+                    break;
+                }
+            }
+
+            if (searchInput == null) {
+                System.err.println("Lỗi: Không tìm thấy ô tìm kiếm trên trang!");
+                return resultsLinks;
+            }
+
+            searchInput.focus();
+            page.keyboard().press("Control+A");
+            page.keyboard().press("Backspace");
+            page.waitForTimeout(200);
+            
+            searchInput.fill(query);
+            page.waitForTimeout(300);
+            page.keyboard().press("Enter");
+
+            System.out.println("Đã gửi lệnh tìm kiếm, chờ tải dữ liệu kết quả...");
+            page.waitForTimeout(3000);
+
+            // Tự động sắp xếp theo Giá từ Cao đến Thấp (Price: High to Low) để ưu tiên sản phẩm chính giá trị cao
+            try {
+                Locator priceSortTrigger = page.locator("label.ant-radio-button-wrapper .ant-select, .ant-radio-button-wrapper .ant-select-selection").first();
+                if (priceSortTrigger.count() > 0 && priceSortTrigger.isVisible()) {
+                    System.out.println("Đang click mở menu sắp xếp giá...");
+                    priceSortTrigger.click();
+                    page.waitForTimeout(1000); // Chờ menu dropdown xuất hiện
+
+                    // Tìm tùy chọn thứ 2 ("High to Low" / "Cao đến Thấp")
+                    Locator highToLowOpt = page.locator("li.ant-select-dropdown-menu-item:has-text('High to Low'), li.ant-select-dropdown-menu-item:has-text('Cao đến Thấp'), li.ant-select-dropdown-menu-item:nth-child(2)").first();
+                    if (highToLowOpt.count() > 0 && highToLowOpt.isVisible()) {
+                        System.out.println("Đang chọn chế độ sắp xếp: Giá từ Cao đến Thấp (Price: High to Low)...");
+                        highToLowOpt.click();
+                        page.waitForTimeout(3000); // Chờ tải lại danh sách đã sắp xếp
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Cảnh báo: Không thể thực hiện sắp xếp giá (mục sắp xếp có thể không hiển thị hoặc cấu trúc thay đổi): " + e.getMessage());
+            }
+
+            int currentPage = 1;
+            int maxPages = 3;
+
+            while (currentPage <= maxPages) {
+                if (isCancelled.getAsBoolean()) {
+                    System.out.println("Tiến trình bị dừng bởi người dùng.");
+                    break;
+                }
+
+                if (resultsLinks.size() >= maxLinks) {
+                    System.out.println("Đã lấy đủ số link yêu cầu (" + maxLinks + "). Dừng quét trang.");
+                    break;
+                }
+
+                // Cào dữ liệu từ bảng kết quả trang hiện tại
+                Locator rows = page.locator("tr.ant-table-row");
+                int rowCount = rows.count();
+                
+                if (rowCount == 0) {
+                    rows = page.locator(".ant-list-item");
+                    rowCount = rows.count();
+                }
+
+                if (rowCount == 0) {
+                    rows = page.locator("//div[(contains(@class, 'ant-col') or contains(@class, 'ant-list-item') or contains(@class, 'card') or contains(@class, 'item')) and .//*[contains(text(), 'Link') or contains(text(), 'Lấy')]]");
+                    rowCount = rows.count();
+                }
+
+                System.out.println("Trang " + currentPage + ": Tìm thấy " + rowCount + " dòng/ô kết quả hiển thị trên trang.");
+
+                List<ShopeeProduct> pageCandidates = new ArrayList<>();
+
+                for (int i = 0; i < rowCount; i++) {
+                    if (isCancelled.getAsBoolean()) break;
+                    
+                    Locator row = rows.nth(i);
+                    
+                    Locator imgLocator = row.locator("img").first();
+                    String imageUrl = "";
+                    if (imgLocator.count() > 0) {
+                        imageUrl = imgLocator.getAttribute("src");
+                    }
+
+                    String rowText = row.innerText();
+                    String title = parseProductTitle(rowText);
+
+                    Locator btn = row.locator("button, a, [role='button'], .ant-btn")
+                            .filter(new Locator.FilterOptions().setHasText(java.util.regex.Pattern.compile("^(Get Link|Lấy Link|Lấy link)$", java.util.regex.Pattern.CASE_INSENSITIVE)))
+                            .first();
+
+                    if (btn.count() == 0) {
+                        btn = row.locator("button, a, [role='button'], .ant-btn")
+                                .filter(new Locator.FilterOptions().setHasText(java.util.regex.Pattern.compile(".*(Get Link|Lấy Link|Lấy link).*", java.util.regex.Pattern.CASE_INSENSITIVE)))
+                                .first();
+                    }
+
+                    if (btn.count() == 0) {
+                        btn = row.locator("button span, a span, .ant-btn span")
+                                .filter(new Locator.FilterOptions().setHasText(java.util.regex.Pattern.compile(".*(Link|Lấy).*", java.util.regex.Pattern.CASE_INSENSITIVE)))
+                                .first();
+                    }
+                    
+                    if (btn.count() == 0) {
+                        btn = row.locator("button, a").first();
+                    }
+
+                    if (btn.count() > 0 && !imageUrl.isEmpty() && !title.isEmpty()) {
+                        System.out.println("  * Tiền lọc văn bản: " + title);
+                        if (TextMatcher.isTextMatch(query, title)) {
+                            pageCandidates.add(new ShopeeProduct(title, imageUrl, btn));
+                            System.out.println("    => [OK] Đạt tiêu chuẩn lọc từ khóa.");
+                        } else {
+                            System.out.println("    => [LOẠI] Không khớp từ khóa.");
+                        }
+                    }
+                }
+
+                // Nếu trang hiện tại có ứng viên đạt tiêu chuẩn lọc từ khóa, tiến hành so sánh ảnh AI ngay tại trang này
+                if (!pageCandidates.isEmpty() && !isCancelled.getAsBoolean()) {
+                    System.out.println("Tiến hành đối sánh hình ảnh bằng AI cho " + pageCandidates.size() + " ứng viên trang " + currentPage + "...");
+                    Map<Integer, GeminiVlmComparator.MatchResult> batchResults = vlmComparator.compareImagesBatch(
+                            extractedFrames, pageCandidates, query
+                    );
+
+                    for (int i = 0; i < pageCandidates.size(); i++) {
+                        if (isCancelled.getAsBoolean()) break;
+                        if (resultsLinks.size() >= maxLinks) {
+                            break;
+                        }
+
+                        ShopeeProduct candidate = pageCandidates.get(i);
+                        GeminiVlmComparator.MatchResult matchResult = batchResults.getOrDefault(i + 1, new GeminiVlmComparator.MatchResult(false, 0.0, "Không có kết quả"));
+
+                        System.out.println("  * Kết quả đối sánh AI cho: " + candidate.getTitle());
+                        System.out.println("    -> Khớp: " + matchResult.isMatch() + 
+                                " (Độ tin cậy: " + String.format("%.2f", matchResult.getConfidence()) + ")");
+                        System.out.println("    -> Lý do: " + matchResult.getReason());
+
+                        if (matchResult.isMatch() && matchResult.getConfidence() >= 0.75) {
+                            System.out.println("    => [CHẤP NHẬN] Sản phẩm trùng khớp! Tiến hành lấy link affiliate...");
+                            String newLink = getAffiliateLink(candidate.getGetLinkButton());
+                            if (newLink != null && !resultsLinks.contains(newLink)) {
+                                resultsLinks.add(newLink);
+                            }
+                        } else {
+                            System.out.println("    => [LOẠI] AI kết luận không khớp hoặc độ tin cậy thấp.");
+                        }
+                    }
+                }
+
+                if (resultsLinks.size() >= maxLinks) {
+                    System.out.println("Đã lấy đủ số link yêu cầu (" + maxLinks + "). Kết thúc quét trang.");
+                    break;
+                }
+
+                // Kiểm tra xem có nút trang tiếp theo và nó có khả dụng không
+                Locator nextBtn = page.locator(".ant-pagination-next:not(.ant-pagination-disabled), button.ant-pagination-next:not([disabled])").first();
+                if (nextBtn.count() > 0 && nextBtn.isVisible() && nextBtn.isEnabled()) {
+                    System.out.println("  -> Phát hiện còn trang kết quả tiếp theo. Đang bấm chuyển sang trang " + (currentPage + 1) + "...");
+                    try {
+                        nextBtn.click();
+                        page.waitForTimeout(2500); // Chờ trang mới tải xong dữ liệu
+                        currentPage++;
+                    } catch (Exception e) {
+                        System.err.println("  -> Không thể chuyển sang trang tiếp theo: " + e.getMessage());
+                        break;
+                    }
+                } else {
+                    System.out.println("  -> Không còn trang kết quả tiếp theo. Kết thúc cào tìm kiếm.");
+                    break;
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("Lỗi khi tìm kiếm và xử lý link: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return resultsLinks;
     }
 
     /**

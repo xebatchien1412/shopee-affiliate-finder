@@ -356,79 +356,31 @@ public class AppFrame extends JFrame {
                     continue;
                 }
 
-                // 2. Tìm kiếm sản phẩm
-                List<ShopeeProduct> searchResults = automation.searchProduct(metadata.getProductName());
-                if (searchResults.isEmpty()) {
-                    System.out.println("  -> Không tìm thấy sản phẩm trên Shopee.");
+                // 2. Tìm kiếm, đối sánh và lấy link trực tiếp theo từng trang (tránh lỗi stale element của Playwright)
+                List<String> updatedLinks = automation.searchAndProcessAffiliateLinks(
+                        metadata.getProductName(),
+                        vlmComparator,
+                        extractedFrames,
+                        maxLinks,
+                        metadata.getAffiliateLinks(),
+                        () -> worker.isCancelled()
+                );
+
+                if (worker.isCancelled()) {
                     cleanDirectory(productTempDir);
-                    continue;
+                    break;
                 }
 
-                List<ShopeeProduct> candidatesToCompare = new ArrayList<>();
-                for (ShopeeProduct candidate : searchResults) {
-                    if (worker.isCancelled()) break;
-                    System.out.println("  * Tiền lọc văn bản: " + candidate.getTitle());
-                    if (TextMatcher.isTextMatch(metadata.getProductName(), candidate.getTitle())) {
-                        candidatesToCompare.add(candidate);
-                        System.out.println("    => [OK] Đạt tiêu chuẩn lọc từ khóa.");
-                    } else {
-                        System.out.println("    => [LOẠI] Không khớp từ khóa.");
-                    }
-                }
-
-                List<ShopeeProduct> matchedProducts = new ArrayList<>();
-
-                if (!candidatesToCompare.isEmpty() && !worker.isCancelled()) {
-                    // Chạy đối sánh ảnh theo lô (Batch Mode)
-                    Map<Integer, GeminiVlmComparator.MatchResult> batchResults = vlmComparator.compareImagesBatch(
-                            extractedFrames, candidatesToCompare, metadata.getProductName()
-                    );
-
-                    for (int i = 0; i < candidatesToCompare.size(); i++) {
-                        if (worker.isCancelled()) break;
-                        // Kiểm tra nếu tổng số link hiện tại + số link khớp chuẩn bị lấy đã vượt quá giới hạn
-                        if (metadata.getAffiliateLinks().size() + matchedProducts.size() >= maxLinks) {
-                            break;
-                        }
-
-                        ShopeeProduct candidate = candidatesToCompare.get(i);
-                        GeminiVlmComparator.MatchResult matchResult = batchResults.getOrDefault(i + 1, new GeminiVlmComparator.MatchResult(false, 0.0, "Không có kết quả"));
-
-                        System.out.println("  * Kết quả đối sánh AI cho: " + candidate.getTitle());
-                        System.out.println("    -> Khớp: " + matchResult.isMatch() + 
-                                " (Độ tin cậy: " + String.format("%.2f", matchResult.getConfidence()) + ")");
-                        System.out.println("    -> Lý do: " + matchResult.getReason());
-
-                        if (matchResult.isMatch() && matchResult.getConfidence() >= 0.75) {
-                            System.out.println("    => [CHẤP NHẬN] Sản phẩm trùng khớp!");
-                            matchedProducts.add(candidate);
-                        } else {
-                            System.out.println("    => [LOẠI] AI kết luận không khớp hoặc độ tin cậy thấp.");
-                        }
-                    }
-                }
-
-                // 4. Lấy link và lưu
-                if (!matchedProducts.isEmpty() && !worker.isCancelled()) {
-                    System.out.println("Đang lấy link affiliate...");
-                    List<String> currentLinks = new ArrayList<>(metadata.getAffiliateLinks());
-
-                    for (ShopeeProduct matched : matchedProducts) {
-                        if (worker.isCancelled()) break;
-                        String newLink = automation.getAffiliateLink(matched.getGetLinkButton());
-                        if (newLink != null && !currentLinks.contains(newLink)) {
-                            currentLinks.add(newLink);
-                        }
-                    }
-
-                    metadata.setAffiliateLinks(currentLinks);
-
+                if (updatedLinks.size() > metadata.getAffiliateLinks().size()) {
+                    metadata.setAffiliateLinks(updatedLinks);
                     try {
                         MetadataManager.writeMetadata(metadata);
-                        System.out.println("  => Đã lưu thành công!");
+                        System.out.println("  => Đã cập nhật file metadata.txt thành công!");
                     } catch (IOException e) {
                         System.err.println("  => Lỗi ghi file metadata.txt: " + e.getMessage());
                     }
+                } else {
+                    System.out.println("  => Không tìm thấy thêm sản phẩm trùng khớp trên Shopee hoặc không lấy được thêm link.");
                 }
 
                 // Luôn xóa các hình ảnh trích xuất ngay sau khi phân tích xong sản phẩm này
