@@ -38,6 +38,7 @@ public class AppFrame extends JFrame {
     private JTextArea txtLog;
     private JButton btnRun;
     private JButton btnBrowse;
+    private JCheckBox chkCdp;
     
     private SwingWorker<Void, String> worker;
 
@@ -102,6 +103,10 @@ public class AppFrame extends JFrame {
         advancedPanel.add(new JLabel("Số ảnh cắt từ video:"));
         spinFrames = new JSpinner(new SpinnerNumberModel(AppConfig.getExtractFramesCount(), 1, 10, 1));
         advancedPanel.add(spinFrames);
+
+        chkCdp = new JCheckBox("Kết nối Chrome 9222 (CDP Mode)", AppConfig.isCdp());
+        chkCdp.setToolTipText("Bật để kết nối trực tiếp vào cửa sổ trình duyệt Chrome thật đang mở sẵn qua file bat");
+        advancedPanel.add(chkCdp);
 
         gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 1.0;
         gbc.gridwidth = 3;
@@ -172,7 +177,7 @@ public class AppFrame extends JFrame {
         String model = AppConfig.getGeminiModel();
         int maxLinks = (Integer) spinMaxLinks.getValue();
         int extractFrames = (Integer) spinFrames.getValue();
-        boolean isCdp = AppConfig.isCdp();
+        boolean isCdp = chkCdp.isSelected();
         
         AppConfig.saveProperties(inputDir, apiKey, model, maxLinks, extractFrames, isCdp);
     }
@@ -212,6 +217,7 @@ public class AppFrame extends JFrame {
         System.setProperty("gui.gemini.key", apiKey);
         System.setProperty("gui.max.links", spinMaxLinks.getValue().toString());
         System.setProperty("gui.extract.frames", spinFrames.getValue().toString());
+        System.setProperty("gui.browser.cdp", String.valueOf(chkCdp.isSelected()));
 
         // Lưu cấu hình hiện tại vào file để lần sau mở lên giữ nguyên trạng thái
         saveCurrentConfig();
@@ -257,6 +263,7 @@ public class AppFrame extends JFrame {
         spinMaxLinks.setEnabled(enabled);
         spinFrames.setEnabled(enabled);
         btnBrowse.setEnabled(enabled);
+        chkCdp.setEnabled(enabled);
     }
 
     /**
