@@ -417,20 +417,41 @@ public class ShopeeAutomation implements AutoCloseable {
                     }
                 }
 
-                // Kiểm tra xem có nút trang tiếp theo và nó có khả dụng không
-                Locator nextBtn = page.locator("li.ant-pagination-next:not(.ant-pagination-disabled) button, li.ant-pagination-next:not(.ant-pagination-disabled) a, button.ant-pagination-next:not([disabled])").first();
-                if (nextBtn.count() > 0 && nextBtn.isVisible()) {
+                // Tìm nút trang tiếp theo bằng cách duyệt qua toàn bộ ứng viên trên DOM để tìm nút hiển thị và hoạt động
+                Locator nextBtn = null;
+                Locator nextBtnCandidates = page.locator("li.ant-pagination-next button, li.ant-pagination-next a, button.ant-pagination-next");
+                int candidateCount = nextBtnCandidates.count();
+                for (int c = 0; c < candidateCount; c++) {
+                    Locator cand = nextBtnCandidates.nth(c);
+                    if (cand.isVisible()) {
+                        String parentClass = "";
+                        try {
+                            parentClass = (String) cand.evaluate("el => el.parentElement ? el.parentElement.className : ''");
+                        } catch (Exception e) {}
+                        
+                        boolean parentDisabled = parentClass.contains("ant-pagination-disabled");
+                        boolean selfDisabled = cand.getAttribute("disabled") != null || 
+                                               (cand.getAttribute("class") != null && cand.getAttribute("class").contains("disabled"));
+                        
+                        if (!parentDisabled && !selfDisabled) {
+                            nextBtn = cand;
+                            break;
+                        }
+                    }
+                }
+
+                if (nextBtn != null) {
                     System.out.println("  -> Phát hiện còn trang kết quả tiếp theo. Đang bấm chuyển sang trang " + (currentPage + 1) + "...");
                     try {
                         nextBtn.click();
-                        page.waitForTimeout(2500); // Chờ trang mới tải xong dữ liệu
+                        page.waitForTimeout(3000); // Tăng thời gian chờ tải trang mới lên 3s để tải bảng kết quả
                         currentPage++;
                     } catch (Exception e) {
-                        System.err.println("  -> Không thể chuyển sang trang tiếp theo: " + e.getMessage());
+                        System.err.println("  -> Không thể click chuyển trang tiếp theo: " + e.getMessage());
                         break;
                     }
                 } else {
-                    System.out.println("  -> Không còn trang kết quả tiếp theo. Kết thúc cào tìm kiếm.");
+                    System.out.println("  -> Không còn trang kết quả tiếp theo (nút Next bị vô hiệu hóa hoặc không tìm thấy). Kết thúc cào tìm kiếm.");
                     break;
                 }
             }
@@ -641,20 +662,41 @@ public class ShopeeAutomation implements AutoCloseable {
                     break;
                 }
 
-                // Kiểm tra xem có nút trang tiếp theo và nó có khả dụng không
-                Locator nextBtn = page.locator("li.ant-pagination-next:not(.ant-pagination-disabled) button, li.ant-pagination-next:not(.ant-pagination-disabled) a, button.ant-pagination-next:not([disabled])").first();
-                if (nextBtn.count() > 0 && nextBtn.isVisible()) {
+                // Tìm nút trang tiếp theo bằng cách duyệt qua toàn bộ ứng viên trên DOM để tìm nút hiển thị và hoạt động
+                Locator nextBtn = null;
+                Locator nextBtnCandidates = page.locator("li.ant-pagination-next button, li.ant-pagination-next a, button.ant-pagination-next");
+                int candidateCount = nextBtnCandidates.count();
+                for (int c = 0; c < candidateCount; c++) {
+                    Locator cand = nextBtnCandidates.nth(c);
+                    if (cand.isVisible()) {
+                        String parentClass = "";
+                        try {
+                            parentClass = (String) cand.evaluate("el => el.parentElement ? el.parentElement.className : ''");
+                        } catch (Exception e) {}
+                        
+                        boolean parentDisabled = parentClass.contains("ant-pagination-disabled");
+                        boolean selfDisabled = cand.getAttribute("disabled") != null || 
+                                               (cand.getAttribute("class") != null && cand.getAttribute("class").contains("disabled"));
+                        
+                        if (!parentDisabled && !selfDisabled) {
+                            nextBtn = cand;
+                            break;
+                        }
+                    }
+                }
+
+                if (nextBtn != null) {
                     System.out.println("  -> Phát hiện còn trang kết quả tiếp theo. Đang bấm chuyển sang trang " + (currentPage + 1) + "...");
                     try {
                         nextBtn.click();
-                        page.waitForTimeout(2500); // Chờ trang mới tải xong dữ liệu
+                        page.waitForTimeout(3000); // Tăng thời gian chờ tải trang mới lên 3s để tải bảng kết quả
                         currentPage++;
                     } catch (Exception e) {
-                        System.err.println("  -> Không thể chuyển sang trang tiếp theo: " + e.getMessage());
+                        System.err.println("  -> Không thể click chuyển trang tiếp theo: " + e.getMessage());
                         break;
                     }
                 } else {
-                    System.out.println("  -> Không còn trang kết quả tiếp theo. Kết thúc cào tìm kiếm.");
+                    System.out.println("  -> Không còn trang kết quả tiếp theo (nút Next bị vô hiệu hóa hoặc không tìm thấy). Kết thúc cào tìm kiếm.");
                     break;
                 }
             }
