@@ -39,6 +39,7 @@ public class AppFrame extends JFrame {
     private JButton btnRun;
     private JButton btnBrowse;
     private JCheckBox chkCdp;
+    private JComboBox<String> cmbModel;
     
     private SwingWorker<Void, String> worker;
 
@@ -103,6 +104,12 @@ public class AppFrame extends JFrame {
         advancedPanel.add(new JLabel("Số ảnh cắt từ video:"));
         spinFrames = new JSpinner(new SpinnerNumberModel(AppConfig.getExtractFramesCount(), 1, 10, 1));
         advancedPanel.add(spinFrames);
+
+        advancedPanel.add(new JLabel("Model AI:"));
+        String[] models = {"gemini-2.5-flash", "gemini-1.5-pro", "gemini-3.1-flash-lite"};
+        cmbModel = new JComboBox<>(models);
+        cmbModel.setSelectedItem(AppConfig.getGeminiModel());
+        advancedPanel.add(cmbModel);
 
         chkCdp = new JCheckBox("Kết nối Chrome 9222 (CDP Mode)", AppConfig.isCdp());
         chkCdp.setToolTipText("Bật để kết nối trực tiếp vào cửa sổ trình duyệt Chrome thật đang mở sẵn qua file bat");
@@ -174,7 +181,7 @@ public class AppFrame extends JFrame {
     private void saveCurrentConfig() {
         String inputDir = txtInputDir.getText().trim();
         String apiKey = txtApiKey.getText().trim();
-        String model = AppConfig.getGeminiModel();
+        String model = (String) cmbModel.getSelectedItem();
         int maxLinks = (Integer) spinMaxLinks.getValue();
         int extractFrames = (Integer) spinFrames.getValue();
         boolean isCdp = chkCdp.isSelected();
@@ -217,6 +224,7 @@ public class AppFrame extends JFrame {
         System.setProperty("gui.gemini.key", apiKey);
         System.setProperty("gui.max.links", spinMaxLinks.getValue().toString());
         System.setProperty("gui.extract.frames", spinFrames.getValue().toString());
+        System.setProperty("gui.gemini.model", cmbModel.getSelectedItem().toString());
         System.setProperty("gui.browser.cdp", String.valueOf(chkCdp.isSelected()));
 
         // Lưu cấu hình hiện tại vào file để lần sau mở lên giữ nguyên trạng thái
@@ -264,6 +272,7 @@ public class AppFrame extends JFrame {
         spinFrames.setEnabled(enabled);
         btnBrowse.setEnabled(enabled);
         chkCdp.setEnabled(enabled);
+        cmbModel.setEnabled(enabled);
     }
 
     /**
