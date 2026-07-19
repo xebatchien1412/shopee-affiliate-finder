@@ -418,8 +418,8 @@ public class ShopeeAutomation implements AutoCloseable {
                 }
 
                 // Kiểm tra xem có nút trang tiếp theo và nó có khả dụng không
-                Locator nextBtn = page.locator(".ant-pagination-next:not(.ant-pagination-disabled), button.ant-pagination-next:not([disabled])").first();
-                if (nextBtn.count() > 0 && nextBtn.isVisible() && nextBtn.isEnabled()) {
+                Locator nextBtn = page.locator("li.ant-pagination-next:not(.ant-pagination-disabled) button, li.ant-pagination-next:not(.ant-pagination-disabled) a, button.ant-pagination-next:not([disabled])").first();
+                if (nextBtn.count() > 0 && nextBtn.isVisible()) {
                     System.out.println("  -> Phát hiện còn trang kết quả tiếp theo. Đang bấm chuyển sang trang " + (currentPage + 1) + "...");
                     try {
                         nextBtn.click();
@@ -630,8 +630,8 @@ public class ShopeeAutomation implements AutoCloseable {
                 }
 
                 // Kiểm tra xem có nút trang tiếp theo và nó có khả dụng không
-                Locator nextBtn = page.locator(".ant-pagination-next:not(.ant-pagination-disabled), button.ant-pagination-next:not([disabled])").first();
-                if (nextBtn.count() > 0 && nextBtn.isVisible() && nextBtn.isEnabled()) {
+                Locator nextBtn = page.locator("li.ant-pagination-next:not(.ant-pagination-disabled) button, li.ant-pagination-next:not(.ant-pagination-disabled) a, button.ant-pagination-next:not([disabled])").first();
+                if (nextBtn.count() > 0 && nextBtn.isVisible()) {
                     System.out.println("  -> Phát hiện còn trang kết quả tiếp theo. Đang bấm chuyển sang trang " + (currentPage + 1) + "...");
                     try {
                         nextBtn.click();
