@@ -20,27 +20,37 @@ public class TextMatcher {
             return false;
         }
 
-        String q = query.toLowerCase().replaceAll("[^a-zA-Z0-9\\s]", " ");
-        String c = candidate.toLowerCase().replaceAll("[^a-zA-Z0-9\\s]", " ");
-
         // Kiểm tra lọc lệch phụ kiện (Accessory Check)
-        // Nếu tên sản phẩm tìm thấy chứa từ khóa phụ kiện (sạc, túi, ốp, dán...) nhưng tên thư mục gốc không có, loại bỏ luôn.
+        // Thực hiện trên chuỗi gốc chưa loại bỏ ký tự Tiếng Việt để so khớp chính xác
+        String origQ = query.toLowerCase().trim();
+        String origC = candidate.toLowerCase().trim();
+
+        // 1. Kiểm tra tiền tố tương thích (ví dụ: "Dành cho Poco F4 GT...")
+        if ((origC.startsWith("dành cho") || origC.startsWith("danh cho") || origC.startsWith("cho ")) &&
+            !(origQ.startsWith("dành cho") || origQ.startsWith("danh cho") || origQ.startsWith("cho "))) {
+            System.out.println("  [Lọc phụ kiện] Loại bỏ '" + candidate + "' vì tiêu đề bắt đầu bằng từ khóa chỉ phụ kiện tương thích ('dành cho').");
+            return false;
+        }
+
+        // 2. Kiểm tra các từ khóa phụ kiện trong danh sách
         String[] accessoryKeywords = {
             "sạc", "sac", "cáp", "cap", "túi", "tui", "bao", "ốp", "op", "dán", "dan", "skin", "phím", "phim", "chuột", "chuot", 
             "lót", "lot", "pad", "đế", "de", "tản", "tan", "nhiệt", "nhiet", "linh", "kiện", "kien", "thay", "thế", "the", 
             "sửa", "sua", "chữa", "chua", "chống", "chong", "sốc", "soc", "cường", "cuong", "lực", "luc", "case", "sleeve", 
             "charger", "adapter", "cable", "keyboard", "cover", "decal", "protector", "screen", "film", "tai", "nghe", "loa", 
-            "balo", "quạt", "quat"
+            "balo", "quạt", "quat", "carbon", "từ tính", "tu tinh"
         };
         for (String acc : accessoryKeywords) {
-            // Bao gồm so khớp cả có dấu và không dấu
-            boolean qHas = q.contains(acc);
-            boolean cHas = c.contains(acc);
+            boolean qHas = origQ.contains(acc);
+            boolean cHas = origC.contains(acc);
             if (cHas && !qHas) {
                 System.out.println("  [Lọc phụ kiện] Loại bỏ '" + candidate + "' vì chứa từ khóa phụ kiện '" + acc + "' mà truy vấn gốc không yêu cầu.");
                 return false;
             }
         }
+
+        String q = query.toLowerCase().replaceAll("[^a-zA-Z0-9\\s]", " ");
+        String c = candidate.toLowerCase().replaceAll("[^a-zA-Z0-9\\s]", " ");
 
         // Tách các từ riêng lẻ
         String[] qWords = q.split("\\s+");

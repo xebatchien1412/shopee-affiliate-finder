@@ -163,7 +163,8 @@ public class GeminiVlmComparator {
             promptBuilder.append("\nReview instructions:\n");
             promptBuilder.append("1. For each candidate (from 1 to ").append(candidates.size()).append("), analyze its physical characteristics (ports layout, keyboard layout, case design, logo placement, screen bezels, shape) shown in the corresponding candidate image, and compare it with the target product in the video frames.\n");
             promptBuilder.append("2. Different versions/models/generations (e.g., HP EliteBook 850 G7 vs G8, or different screen sizes) are NOT a match. They must be the exact same model.\n");
-            promptBuilder.append("3. Respond ONLY with a JSON array where each element is an object for each candidate. The array must contain exactly one object per candidate in order:\n");
+            promptBuilder.append("3. CRITICAL: Distinguish between the actual main product (e.g., the phone itself, the camera itself, the laptop itself) and its accessories (e.g., phone cases, protective covers, screen protectors, mounts, chargers, straps). Even if a phone case is shown with the exact shape, cutouts, or brand of the target phone, it is NOT a match for the phone itself. The candidate product must be the actual main product, not an accessory for it. Scan both candidate titles and images carefully for indications of accessories.\n");
+            promptBuilder.append("4. Respond ONLY with a JSON array where each element is an object for each candidate. The array must contain exactly one object per candidate in order:\n");
             promptBuilder.append("   - \"index\": integer (from 1 to ").append(candidates.size()).append(")\n");
             promptBuilder.append("   - \"match\": true (if it is exactly the same model) or false (if different model or not sure)\n");
             promptBuilder.append("   - \"confidence\": score from 0.0 to 1.0\n");
