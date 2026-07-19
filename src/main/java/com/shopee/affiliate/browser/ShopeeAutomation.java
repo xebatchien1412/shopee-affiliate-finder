@@ -615,8 +615,20 @@ public class ShopeeAutomation implements AutoCloseable {
                         if (matchResult.isMatch() && matchResult.getConfidence() >= 0.75) {
                             System.out.println("    => [CHẤP NHẬN] Sản phẩm trùng khớp! Tiến hành lấy link affiliate...");
                             String newLink = getAffiliateLink(candidate.getGetLinkButton());
-                            if (newLink != null && !resultsLinks.contains(newLink)) {
-                                resultsLinks.add(newLink);
+                            if (newLink != null) {
+                                String cleanNew = cleanShopeeLink(newLink);
+                                boolean isDuplicate = false;
+                                for (String existing : resultsLinks) {
+                                    if (cleanShopeeLink(existing).equalsIgnoreCase(cleanNew)) {
+                                        isDuplicate = true;
+                                        break;
+                                    }
+                                }
+                                if (!isDuplicate) {
+                                    resultsLinks.add(newLink);
+                                } else {
+                                    System.out.println("      -> [BỎ QUA] Link đã tồn tại trong file metadata.txt (trùng mã liên kết).");
+                                }
                             }
                         } else {
                             System.out.println("    => [LOẠI] AI kết luận không khớp hoặc độ tin cậy thấp.");
@@ -763,5 +775,18 @@ public class ShopeeAutomation implements AutoCloseable {
         } catch (Exception e) {
             System.err.println("Lỗi khi đóng Playwright: " + e.getMessage());
         }
+    }
+
+    /**
+     * Chuẩn hóa và làm sạch link affiliate Shopee bằng cách loại bỏ các tham số tracking tùy chọn (từ dấu '?' trở đi).
+     */
+    private String cleanShopeeLink(String link) {
+        if (link == null) return "";
+        String trimmed = link.trim();
+        int qMarkIdx = trimmed.indexOf('?');
+        if (qMarkIdx != -1) {
+            return trimmed.substring(0, qMarkIdx).trim();
+        }
+        return trimmed;
     }
 }
