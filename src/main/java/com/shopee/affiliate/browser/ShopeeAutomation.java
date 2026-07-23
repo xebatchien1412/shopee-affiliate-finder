@@ -304,20 +304,14 @@ public class ShopeeAutomation implements AutoCloseable {
                 return products;
             }
 
-            // Xóa sạch nội dung cũ bằng cách chọn tất cả và nhấn Backspace
-            searchInput.focus();
-            page.keyboard().press("Control+A");
-            page.keyboard().press("Backspace");
-            page.waitForTimeout(200);
-            
-            // Nhập từ khóa mới
-            searchInput.fill(query);
-            page.waitForTimeout(300);
+            System.out.println("Đang nhập từ khóa tìm kiếm (mô phỏng gõ bàn phím)...");
+            humanType(searchInput, query);
+            waitForRandomTimeout(400, 1000);
             page.keyboard().press("Enter");
 
             System.out.println("Đã gửi lệnh tìm kiếm, chờ tải dữ liệu kết quả...");
-            // Đợi bảng dữ liệu tải xong (thường 3 giây)
-            page.waitForTimeout(3000);
+            // Đợi bảng dữ liệu tải xong ngẫu nhiên
+            waitForRandomTimeout(3500, 6000);
 
             // Chẩn đoán DOM để tìm cấu trúc chứa thẻ "Get Link" hoặc "Lấy Link"
             try {
@@ -417,11 +411,9 @@ public class ShopeeAutomation implements AutoCloseable {
                     }
                 }
 
-                // Cuộn xuống cuối trang để kích hoạt hiển thị bộ phân trang (lazy rendering)
-                try {
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
-                    page.waitForTimeout(1000);
-                } catch (Exception e) {}
+                // Cuộn xuống cuối trang mượt mà (lazy rendering & human action)
+                System.out.println("Đang cuộn trang kết quả xuống từ từ (mô phỏng lướt đọc)...");
+                humanScrollToBottom();
 
                 // Tìm nút trang tiếp theo bằng cách duyệt qua toàn bộ ứng viên trên DOM để tìm nút hiển thị và hoạt động
                 Locator nextBtn = null;
@@ -449,8 +441,8 @@ public class ShopeeAutomation implements AutoCloseable {
                 if (nextBtn != null) {
                     System.out.println("  -> Phát hiện còn trang kết quả tiếp theo. Đang bấm chuyển sang trang " + (currentPage + 1) + "...");
                     try {
-                        nextBtn.click();
-                        page.waitForTimeout(3000); // Tăng thời gian chờ tải trang mới lên 3s để tải bảng kết quả
+                        humanClick(nextBtn);
+                        waitForRandomTimeout(3500, 5500); // Chờ tải trang mới ngẫu nhiên
                         currentPage++;
                     } catch (Exception e) {
                         System.err.println("  -> Không thể click chuyển trang tiếp theo: " + e.getMessage());
@@ -509,32 +501,28 @@ public class ShopeeAutomation implements AutoCloseable {
                 return resultsLinks;
             }
 
-            searchInput.focus();
-            page.keyboard().press("Control+A");
-            page.keyboard().press("Backspace");
-            page.waitForTimeout(200);
-            
-            searchInput.fill(query);
-            page.waitForTimeout(300);
+            System.out.println("Đang nhập từ khóa tìm kiếm (mô phỏng gõ bàn phím)...");
+            humanType(searchInput, query);
+            waitForRandomTimeout(400, 1000);
             page.keyboard().press("Enter");
 
             System.out.println("Đã gửi lệnh tìm kiếm, chờ tải dữ liệu kết quả...");
-            page.waitForTimeout(3000);
+            waitForRandomTimeout(3500, 6000);
 
             // Tự động sắp xếp theo Giá từ Cao đến Thấp (Price: High to Low) để ưu tiên sản phẩm chính giá trị cao
             try {
                 Locator priceSortTrigger = page.locator("label.ant-radio-button-wrapper .ant-select, .ant-radio-button-wrapper .ant-select-selection").first();
                 if (priceSortTrigger.count() > 0 && priceSortTrigger.isVisible()) {
-                    System.out.println("Đang click mở menu sắp xếp giá...");
-                    priceSortTrigger.click();
-                    page.waitForTimeout(1000); // Chờ menu dropdown xuất hiện
+                    System.out.println("Đang click mở menu sắp xếp giá (mô phỏng hover click)...");
+                    humanClick(priceSortTrigger);
+                    waitForRandomTimeout(1000, 1800); // Chờ menu dropdown xuất hiện
 
                     // Tìm tùy chọn thứ 2 ("High to Low" / "Cao đến Thấp")
                     Locator highToLowOpt = page.locator("li.ant-select-dropdown-menu-item:has-text('High to Low'), li.ant-select-dropdown-menu-item:has-text('Cao đến Thấp'), li.ant-select-dropdown-menu-item:nth-child(2)").first();
                     if (highToLowOpt.count() > 0 && highToLowOpt.isVisible()) {
                         System.out.println("Đang chọn chế độ sắp xếp: Giá từ Cao đến Thấp (Price: High to Low)...");
-                        highToLowOpt.click();
-                        page.waitForTimeout(3000); // Chờ tải lại danh sách đã sắp xếp
+                        humanClick(highToLowOpt);
+                        waitForRandomTimeout(3000, 5000); // Chờ tải lại danh sách đã sắp xếp
                     }
                 }
             } catch (Exception e) {
@@ -653,6 +641,7 @@ public class ShopeeAutomation implements AutoCloseable {
                                 }
                                 if (!isDuplicate) {
                                     resultsLinks.add(newLink);
+                                    waitForRandomTimeout(2000, 4000); // Trì hoãn ngẫu nhiên trước lượt tiếp theo
                                 } else {
                                     System.out.println("      -> [BỎ QUA] Link đã tồn tại trong file metadata.txt (trùng mã liên kết).");
                                 }
@@ -668,11 +657,9 @@ public class ShopeeAutomation implements AutoCloseable {
                     break;
                 }
 
-                // Cuộn xuống cuối trang để kích hoạt hiển thị bộ phân trang (lazy rendering)
-                try {
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
-                    page.waitForTimeout(1000);
-                } catch (Exception e) {}
+                // Cuộn xuống cuối trang mượt mà (lazy rendering & human action)
+                System.out.println("Đang cuộn trang kết quả xuống từ từ (mô phỏng lướt đọc)...");
+                humanScrollToBottom();
 
                 // [Debug] In chi tiết cấu trúc DOM của nút phân trang để chẩn đoán chính xác
                 try {
@@ -724,10 +711,10 @@ public class ShopeeAutomation implements AutoCloseable {
                 }
 
                 if (nextBtn != null) {
-                    System.out.println("  -> Phát hiện còn trang kết quả tiếp theo. Đang bấm chuyển sang trang " + (currentPage + 1) + "...");
+                    System.out.println("  -> Phát hiện còn trang kết quả tiếp theo. Đang bấm chuyển sang trang " + (currentPage + 1) + " (mô phỏng hover click)...");
                     try {
-                        nextBtn.click();
-                        page.waitForTimeout(3000); // Tăng thời gian chờ tải trang mới lên 3s để tải bảng kết quả
+                        humanClick(nextBtn);
+                        waitForRandomTimeout(3500, 5500); // Chờ tải trang mới ngẫu nhiên
                         currentPage++;
                     } catch (Exception e) {
                         System.err.println("  -> Không thể click chuyển trang tiếp theo: " + e.getMessage());
@@ -755,11 +742,11 @@ public class ShopeeAutomation implements AutoCloseable {
      */
     public String getAffiliateLink(Locator getLinkButton) {
         try {
-            System.out.println("Đang click nút lấy link...");
-            getLinkButton.click();
+            System.out.println("Đang click nút lấy link (mô phỏng hover click)...");
+            humanClick(getLinkButton);
 
             // Chờ popup modal xuất hiện (thường có class ant-modal)
-            page.waitForTimeout(2000);
+            waitForRandomTimeout(1500, 2800);
 
             // Tìm ô chứa link. Thường là input hoặc textarea chứa link có s.shopee.vn hoặc shope.ee
             Locator inputs = page.locator("input, textarea");
@@ -791,12 +778,12 @@ public class ShopeeAutomation implements AutoCloseable {
             // Đóng popup bằng cách nhấn nút Đóng/Hủy hoặc phím Escape
             Locator closeBtn = page.locator(".ant-modal-close, button:has-text('Đóng'), button:has-text('Cancel'), button:has-text('Hủy')").first();
             if (closeBtn.count() > 0 && closeBtn.isVisible()) {
-                closeBtn.click();
+                humanClick(closeBtn);
             } else {
                 page.keyboard().press("Escape");
             }
             
-            page.waitForTimeout(1000); // Chờ modal biến mất hoàn toàn
+            waitForRandomTimeout(800, 1500); // Chờ modal biến mất hoàn toàn
             
             if (affiliateLink != null) {
                 System.out.println("  -> Đã lấy được link: " + affiliateLink);
@@ -854,6 +841,120 @@ public class ShopeeAutomation implements AutoCloseable {
             }
         } catch (Exception e) {
             System.err.println("Lỗi khi đóng Playwright: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Chờ một khoảng thời gian ngẫu nhiên giữa minMs và maxMs để mô phỏng sự bất định của con người.
+     */
+    private void waitForRandomTimeout(int minMs, int maxMs) {
+        if (minMs >= maxMs) {
+            page.waitForTimeout(minMs);
+            return;
+        }
+        int randomDelay = minMs + new java.util.Random().nextInt(maxMs - minMs + 1);
+        page.waitForTimeout(randomDelay);
+    }
+
+    /**
+     * Mô phỏng gõ phím từ từ có nhịp điệu giống người thật.
+     */
+    private void humanType(Locator input, String text) {
+        if (input == null || text == null) return;
+        input.focus();
+        
+        // Nhấn Ctrl+A và Backspace để xóa dữ liệu cũ
+        page.keyboard().press("Control+A");
+        waitForRandomTimeout(80, 150);
+        page.keyboard().press("Backspace");
+        waitForRandomTimeout(100, 200);
+
+        java.util.Random rand = new java.util.Random();
+        for (int i = 0; i < text.length(); i++) {
+            String character = String.valueOf(text.charAt(i));
+            page.keyboard().type(character);
+            
+            // Trễ ngẫu nhiên giữa mỗi ký tự gõ phím
+            waitForRandomTimeout(50, 150);
+            
+            // Khoảng 5% tỷ lệ người dùng dừng tay suy nghĩ ngắn giữa chừng
+            if (rand.nextInt(100) < 5) {
+                waitForRandomTimeout(300, 600);
+            }
+        }
+        // Nghỉ một chút trước khi hoàn tất hành động gõ
+        waitForRandomTimeout(400, 800);
+    }
+
+    /**
+     * Mô phỏng hành động di chuyển chuột (hover) đến phần tử trước khi click,
+     * đồng thời trì hoãn thời gian phản xạ ngẫu nhiên.
+     */
+    private void humanClick(Locator locator) {
+        if (locator == null) return;
+        try {
+            // Cuộn phần tử vào màn hình nếu cần
+            locator.scrollIntoViewIfNeeded();
+            waitForRandomTimeout(200, 450);
+            
+            // Rê chuột đến phần tử để kích hoạt sự kiện hover
+            locator.hover();
+            
+            // Thời gian phản xạ rê chuột trước khi thực sự bấm
+            waitForRandomTimeout(300, 700);
+            
+            // Click thực sự
+            locator.click();
+        } catch (Exception e) {
+            // Fallback click trực tiếp nếu hover gặp lỗi
+            locator.click();
+        }
+    }
+
+    /**
+     * Mô phỏng cuộn trang mượt mà từng đợt để trigger lazy rendering
+     * và đánh lừa hệ thống phát hiện bot của Shopee.
+     */
+    private void humanScrollToBottom() {
+        try {
+            java.util.Random rand = new java.util.Random();
+            // Lấy chiều cao tổng thể và chiều cao viewport hiện tại
+            Number scrollHeightNum = (Number) page.evaluate("document.body.scrollHeight");
+            Number innerHeightNum = (Number) page.evaluate("window.innerHeight");
+            
+            int scrollHeight = scrollHeightNum != null ? scrollHeightNum.intValue() : 2000;
+            int viewportHeight = innerHeightNum != null ? innerHeightNum.intValue() : 1000;
+            
+            int currentScroll = 0;
+            while (currentScroll < scrollHeight - viewportHeight) {
+                // Mỗi lần cuộn một khoảng ngẫu nhiên từ 150px đến 350px
+                int step = 150 + rand.nextInt(201);
+                currentScroll += step;
+                page.evaluate("window.scrollTo(0, " + currentScroll + ")");
+                
+                // Trễ ngẫu nhiên từ 120ms đến 250ms giữa các bước cuộn
+                waitForRandomTimeout(120, 250);
+                
+                // Tỉ lệ 15% cuộn ngược lại một chút (100px) mô phỏng hành vi đọc lướt
+                if (rand.nextInt(100) < 15) {
+                    currentScroll = Math.max(0, currentScroll - 100);
+                    page.evaluate("window.scrollTo(0, " + currentScroll + ")");
+                    waitForRandomTimeout(150, 300);
+                }
+                
+                // Cập nhật lại chiều cao thực tế (phòng trường hợp DOM phình ra do tải thêm)
+                Number newHeight = (Number) page.evaluate("document.body.scrollHeight");
+                if (newHeight != null) {
+                    scrollHeight = newHeight.intValue();
+                }
+            }
+            // Đảm bảo cuộn hẳn xuống đáy sau khi kết thúc
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
+            waitForRandomTimeout(500, 1000);
+        } catch (Exception e) {
+            // Fallback cuộn nhanh nếu bị lỗi evaluate
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
+            page.waitForTimeout(1000);
         }
     }
 
