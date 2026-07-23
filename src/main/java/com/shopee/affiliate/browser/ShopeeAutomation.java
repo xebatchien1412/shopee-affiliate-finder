@@ -25,6 +25,7 @@ public class ShopeeAutomation implements AutoCloseable {
     private Browser browser;
     private BrowserContext context;
     private Page page;
+    private int productsProcessedCount = 0;
 
     /**
      * Dữ liệu đại diện cho một sản phẩm tìm thấy trên Shopee Affiliate.
@@ -475,6 +476,13 @@ public class ShopeeAutomation implements AutoCloseable {
             java.util.function.BooleanSupplier isCancelled
     ) {
         List<String> resultsLinks = new ArrayList<>(existingLinks);
+        
+        // Tăng biến đếm số sản phẩm đã xử lý. 
+        // Cứ sau mỗi 5 sản phẩm (sản phẩm thứ 6, 11, 16,...) thì thực hiện nghỉ uống nước
+        productsProcessedCount++;
+        if (productsProcessedCount > 1 && (productsProcessedCount - 1) % 5 == 0) {
+            simulateHumanBreak();
+        }
         
         try {
             // Nhập ô tìm kiếm và Enter
@@ -955,6 +963,36 @@ public class ShopeeAutomation implements AutoCloseable {
             // Fallback cuộn nhanh nếu bị lỗi evaluate
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)");
             page.waitForTimeout(1000);
+        }
+    }
+
+    /**
+     * Mô phỏng nghỉ tay của người dùng để tránh bị quét vì thao tác liên tục.
+     * Cứ sau mỗi 5 sản phẩm, app sẽ giả lập đi sang trang Dashboard nghỉ ngơi 5-9 giây,
+     * sau đó quay lại trang Tìm kiếm sản phẩm.
+     */
+    private void simulateHumanBreak() {
+        try {
+            System.out.println("☕ [Hành vi mô phỏng] Đi uống nước nghỉ ngơi để tránh bị quét mẫu hình lặp lại...");
+            // Đi tới trang chủ dashboard của affiliate
+            page.navigate("https://affiliate.shopee.vn/");
+            waitForRandomTimeout(4000, 7000);
+            
+            // Cuộn nhẹ xem dashboard
+            page.evaluate("window.scrollTo(0, 200)");
+            waitForRandomTimeout(1500, 3000);
+            
+            // Quay trở lại trang Tìm kiếm sản phẩm
+            page.navigate("https://affiliate.shopee.vn/offer/product_offer");
+            waitForRandomTimeout(3500, 6000);
+            System.out.println("☕ [Hành vi mô phỏng] Quay trở lại trang tìm kiếm và tiếp tục công việc.");
+        } catch (Exception e) {
+            System.err.println("Lỗi khi mô phỏng hành vi nghỉ: " + e.getMessage());
+            // Fallback: Nếu lỗi thì cố quay về trang offer để tiếp tục
+            try {
+                page.navigate("https://affiliate.shopee.vn/offer/product_offer");
+                page.waitForTimeout(3000);
+            } catch (Exception ignored) {}
         }
     }
 
